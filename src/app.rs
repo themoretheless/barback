@@ -13,7 +13,7 @@ use objc2_app_kit::{
 use objc2_event_kit::{EKEventStore, EKEventStoreChangedNotification};
 use objc2_foundation::{
     ns_string, MainThreadMarker, NSCalendarDayChangedNotification, NSNotificationCenter,
-    NSObjectProtocol, NSRunLoop, NSRunLoopCommonModes, NSString,
+    NSObjectNSThreadPerformAdditions, NSObjectProtocol, NSRunLoop, NSRunLoopCommonModes, NSString,
     NSSystemTimeZoneDidChangeNotification, NSTimer, NSURL,
 };
 
@@ -38,7 +38,6 @@ struct ControllerIvars {
     loading: Cell<bool>,
     events: RefCell<Vec<RawEvent>>,
     fetched_at: Cell<i64>,
-    header_action: Cell<HeaderAction>,
 
     /// The optional second status item that shows the meeting in the menu bar.
     label_item: RefCell<Option<Retained<NSStatusItem>>>,
@@ -128,17 +127,32 @@ declare_class!(
             }
         }
 
-        // EventKit hands out snapshots, so a change means refetch, not reread.
+        // NSNotificationCenter delivers synchronously on whichever thread posted
+        // the notification, and EventKit posts from its own worker. These two
+        // selectors must therefore touch no ivar and no AppKit: all they may do
+        // is hop to the main thread, where the ivars are not shared and the
+        // MainThreadMarker is honest.
         #[method(calendarsChanged:)]
         fn calendars_changed(&self, _note: Option<&AnyObject>) {
+            self.hop_to_main(sel!(calendarsChangedOnMain));
+        }
+
+        #[method(environmentChanged:)]
+        fn environment_changed(&self, _note: Option<&AnyObject>) {
+            self.hop_to_main(sel!(environmentChangedOnMain));
+        }
+
+        // EventKit hands out snapshots, so a change means refetch, not reread.
+        #[method(calendarsChangedOnMain)]
+        fn calendars_changed_on_main(&self) {
             calendar::reset(&self.ivars().store);
             self.refresh(true);
         }
 
         // The machine may have been asleep for days, and a timezone or day change
         // moves the boundaries every label is measured against.
-        #[method(environmentChanged:)]
-        fn environment_changed(&self, _note: Option<&AnyObject>) {
+        #[method(environmentChangedOnMain)]
+        fn environment_changed_on_main(&self) {
             self.refresh(true);
         }
 
@@ -149,7 +163,7 @@ declare_class!(
 
         #[method(quit:)]
         fn quit(&self, _sender: Option<&AnyObject>) {
-            let mtm = MainThreadMarker::from(self);
+            let mtm = self.mtm();
             let app = NSApplication::sharedApplication(mtm);
             unsafe { app.terminate(None) };
         }
@@ -172,7 +186,6 @@ impl Controller {
             loading: Cell::new(false),
             events: RefCell::new(Vec::new()),
             fetched_at: Cell::new(i64::MIN),
-            header_action: Cell::new(HeaderAction::None),
 
             label_item: RefCell::new(None),
             label_menu: NSMenu::new(mtm),
@@ -186,6 +199,24 @@ impl Controller {
         this.observe_notifications();
         this.refresh(true);
         this
+    }
+
+    /// `MainThreadMarker::from(self)` is a type-system-only construct: it calls
+    /// `new_unchecked` and inserts no runtime check, so getting it wrong is
+    /// silent undefined behaviour rather than a crash. Assert instead.
+    fn mtm(&self) -> MainThreadMarker {
+        MainThreadMarker::new().expect("AppKit touched off the main thread")
+    }
+
+    /// Enqueues `selector` on the main run loop and returns immediately.
+    ///
+    /// Called from notification selectors that may arrive on a background
+    /// thread. It is sound there only because it reads no ivar and calls no
+    /// AppKit: everything else on `Controller` is main thread only.
+    fn hop_to_main(&self, selector: objc2::runtime::Sel) {
+        unsafe {
+            self.performSelectorOnMainThread_withObject_waitUntilDone(selector, None, false);
+        }
     }
 
     fn install_menus(&self) {
@@ -275,9 +306,8 @@ impl Controller {
             meeting::next_change_at(&events, now, &ivars.config)
         };
 
-        ivars.header_action.set(model.header.action);
 
-        let mtm = MainThreadMarker::from(self);
+        let mtm = self.mtm();
         self.populate(&ivars.menu, &model, mtm);
         self.populate(&ivars.label_menu, &model, mtm);
 
@@ -371,12 +401,12 @@ impl Controller {
             menu.addItem(&self.info_item(mtm, tertiary, 1));
         }
 
-        let sections: [(&str, &Vec<meeting::MenuRow>); 3] = [
-            ("All day", &model.all_day),
-            ("Today", &model.today),
-            ("Tomorrow", &model.tomorrow),
+        let sections: [(&str, &Vec<meeting::MenuRow>, usize); 3] = [
+            ("All day", &model.all_day, 0),
+            ("Today", &model.today, model.today_truncated),
+            ("Tomorrow", &model.tomorrow, model.tomorrow_truncated),
         ];
-        for (name, rows) in sections {
+        for (name, rows, dropped) in sections {
             if rows.is_empty() {
                 continue;
             }
@@ -396,9 +426,9 @@ impl Controller {
                 menu.addItem(&item);
                 menu.addItem(&self.info_item(mtm, &row.detail, 2));
             }
-        }
-        if model.truncated > 0 {
-            menu.addItem(&self.info_item(mtm, &format!("+{} more", model.truncated), 1));
+            if dropped > 0 {
+                menu.addItem(&self.info_item(mtm, &format!("+{dropped} more"), 1));
+            }
         }
 
         menu.addItem(&NSMenuItem::separatorItem(mtm));
@@ -441,7 +471,7 @@ impl Controller {
         } else {
             ns_string!("\u{25c0}")
         };
-        let mtm = MainThreadMarker::from(self);
+        let mtm = self.mtm();
         if let Some(button) = unsafe { self.ivars().status_item.button(mtm) } {
             unsafe { button.setTitle(title) };
         }
@@ -468,7 +498,7 @@ impl Controller {
     }
 
     fn set_label_title(&self, text: &str) {
-        let mtm = MainThreadMarker::from(self);
+        let mtm = self.mtm();
         let slot = self.ivars().label_item.borrow();
         let Some(item) = slot.as_ref() else {
             return;

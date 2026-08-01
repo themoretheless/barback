@@ -265,7 +265,12 @@ fn convert(event: &EKEvent, cal: &NSCalendar) -> Option<RawEvent> {
         title: opt_string(as_object, "title").unwrap_or_default(),
         calendar: calendar
             .as_deref()
-            .map(|c| unsafe { c.title() }.to_string())
+            .and_then(|c| {
+                // Typed non-optional by the bindings, nil in practice for a
+                // calendar that is being deleted mid-sync.
+                let title: Option<Retained<NSString>> = unsafe { msg_send_id![c, title] };
+                title.map(|t| t.to_string())
+            })
             .unwrap_or_default(),
         calendar_rank: calendar
             .as_deref()

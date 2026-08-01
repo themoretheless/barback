@@ -218,7 +218,9 @@ pub struct MenuModel {
     pub today: Vec<MenuRow>,
     pub tomorrow: Vec<MenuRow>,
     /// Rows dropped because of `menu_max_rows`.
-    pub truncated: usize,
+    /// Counted per section, so the note lands under the day it belongs to.
+    pub today_truncated: usize,
+    pub tomorrow_truncated: usize,
 }
 
 // ---------------------------------------------------------------------------
@@ -243,6 +245,11 @@ struct Candidate {
     availability: Availability,
     /// 0 accepted, 1 no answer yet, 2 tentative.
     participation: u8,
+    /// The user's own attendee row, if there is one. Kept separate from
+    /// `participation` because "no row at all" and "invited, not answered" rank
+    /// the same but must not be labelled the same.
+    self_status: Option<SelfStatus>,
+    is_organizer: bool,
     /// Declined or delegated somewhere in the duplicate group.
     excluded: bool,
     attendee_count: usize,
@@ -266,8 +273,11 @@ impl Candidate {
         }
     }
 
+    /// Compares the real interval, not the padded one: `eff_end` exists to keep
+    /// a zero-length event visible, and using it here would invent conflicts
+    /// between events that never actually intersect.
     fn overlaps(&self, other: &Candidate) -> bool {
-        self.start < other.eff_end && other.start < self.eff_end
+        self.start < other.end && other.start < self.end
     }
 }
 
@@ -306,6 +316,8 @@ fn to_candidate(ev: &RawEvent, cfg: &Config) -> Candidate {
         all_day: ev.all_day,
         availability: ev.availability,
         participation,
+        self_status: ev.self_status,
+        is_organizer: ev.is_organizer,
         excluded,
         attendee_count: ev.attendee_count,
         merged_count: 1,
@@ -352,11 +364,21 @@ fn merge_duplicates(
     externals: Vec<Option<String>>,
     cfg: &Config,
 ) -> Vec<Candidate> {
+    // Grouping is order sensitive when a UID-less event could pair with more
+    // than one neighbour, so fix the order before touching anything.
+    let mut order: Vec<usize> = (0..cands.len()).collect();
+    order.sort_by(|&a, &b| (cands[a].start, &cands[a].id).cmp(&(cands[b].start, &cands[b].id)));
+    let externals: Vec<Option<String>> = order.iter().map(|&i| externals[i].clone()).collect();
+    let cands: Vec<Candidate> = order.iter().map(|&i| cands[i].clone()).collect();
+
     let n = cands.len();
     let norm: Vec<String> = cands.iter().map(|c| normalized_title(&c.title)).collect();
 
     // Union-find over the (small) candidate list.
     let mut parent: Vec<usize> = (0..n).collect();
+    // One representative UID per group, so a union can never bridge two groups
+    // that carry different UIDs.
+    let mut root_uid: Vec<Option<String>> = externals.clone();
     fn find(parent: &mut Vec<usize>, mut x: usize) -> usize {
         while parent[x] != x {
             parent[x] = parent[parent[x]];
@@ -378,12 +400,24 @@ fn merge_duplicates(
                 // Fuzzy match only when at least one side has no UID.
                 _ => !norm[i].is_empty() && norm[i] == norm[j],
             };
-            if same {
-                let (ri, rj) = (find(&mut parent, i), find(&mut parent, j));
-                if ri != rj {
-                    parent[ri] = rj;
+            if !same {
+                continue;
+            }
+            let (ri, rj) = (find(&mut parent, i), find(&mut parent, j));
+            if ri == rj {
+                continue;
+            }
+            // Without this, one UID-less event sitting between two different
+            // meetings with the same title merges all three transitively and a
+            // real meeting vanishes from the menu.
+            if let (Some(x), Some(y)) = (&root_uid[ri], &root_uid[rj]) {
+                if x != y {
+                    continue;
                 }
             }
+            let uid = root_uid[ri].take().or_else(|| root_uid[rj].take());
+            parent[ri] = rj;
+            root_uid[rj] = uid;
         }
     }
 
@@ -410,7 +444,12 @@ fn merge_duplicates(
         let winner = order[0];
 
         let excluded = group.iter().any(|&i| cands[i].excluded);
-        let participation = group.iter().map(|&i| cands[i].participation).min().unwrap_or(1);
+        // Take the answer from whichever copy the user actually replied to, so
+        // the rank and the label it produces agree.
+        let answered = *group
+            .iter()
+            .min_by_key(|&&i| (cands[i].participation, &cands[i].id))
+            .unwrap_or(&winner);
         let attendee_count = group.iter().map(|&i| cands[i].attendee_count).max().unwrap_or(0);
         // Subscribed mirrors routinely flatten everything to Free.
         let availability = if group.iter().any(|&i| cands[i].availability == Availability::Busy) {
@@ -421,7 +460,9 @@ fn merge_duplicates(
 
         let mut merged = cands[winner].clone();
         merged.excluded = excluded;
-        merged.participation = participation;
+        merged.participation = cands[answered].participation;
+        merged.self_status = cands[answered].self_status;
+        merged.is_organizer = cands[answered].is_organizer;
         merged.attendee_count = attendee_count;
         merged.availability = availability;
         merged.merged_count = group.len();
@@ -664,7 +705,9 @@ pub fn status_title(state: &State, now: Now, cfg: &Config) -> String {
     match state {
         State::Loading => "\u{2026}".to_string(),
         State::NeedsPermission | State::Denied | State::Restricted => "Cal !".to_string(),
-        State::NoUpcoming => String::new(),
+        // Never empty: the button sizes to its content, so an empty title leaves
+        // a blank sliver in the menu bar and the toggle looks like it did nothing.
+        State::NoUpcoming => "No meetings".to_string(),
         State::Meeting(sel) => {
             let short = match countdown(sel, now, cfg).as_str() {
                 "now" => "now".to_string(),
@@ -759,7 +802,15 @@ fn row_for(c: &Candidate, selected_id: Option<&str>, all: &[&Candidate], cfg: &C
         tooltip: c.title.clone(),
         is_selected: selected_id == Some(c.id.as_str()),
         conflict,
-        dimmed: c.participation > 0,
+        // Only an actual unanswered invitation is "not accepted". An event you
+        // created for yourself has no attendee row at all and ranks the same,
+        // but calling it not accepted would be nonsense. Some servers list the
+        // organizer's own row as pending, hence the second guard.
+        dimmed: !c.is_organizer
+            && matches!(
+                c.self_status,
+                Some(SelfStatus::NeedsAction) | Some(SelfStatus::Tentative)
+            ),
     }
 }
 
@@ -788,7 +839,8 @@ pub fn build_menu(
             all_day: Vec::new(),
             today: Vec::new(),
             tomorrow: Vec::new(),
-            truncated: 0,
+            today_truncated: 0,
+            tomorrow_truncated: 0,
         };
     }
 
@@ -808,7 +860,8 @@ pub fn build_menu(
     let mut all_day = Vec::new();
     let mut today = Vec::new();
     let mut tomorrow = Vec::new();
-    let mut truncated = 0usize;
+    let mut today_truncated = 0usize;
+    let mut tomorrow_truncated = 0usize;
 
     for c in &visible {
         let row = row_for(c, selected_id.as_deref(), &timed, cfg);
@@ -818,12 +871,12 @@ pub fn build_menu(
             if today.len() < cfg.menu_max_rows {
                 today.push(row);
             } else {
-                truncated += 1;
+                today_truncated += 1;
             }
         } else if tomorrow.len() < cfg.menu_max_rows {
             tomorrow.push(row);
         } else {
-            truncated += 1;
+            tomorrow_truncated += 1;
         }
     }
 
@@ -833,7 +886,8 @@ pub fn build_menu(
         all_day,
         today,
         tomorrow,
-        truncated,
+        today_truncated,
+        tomorrow_truncated,
     }
 }
 
@@ -1149,6 +1203,67 @@ mod tests {
         let sel = select_nearest(&[a, b], now_at(9 * H + 50 * M), &Config::default()).unwrap();
         assert_eq!(sel.event_id, "A");
         assert_eq!(sel.merged_count, 1);
+    }
+
+    #[test]
+    fn a_uid_less_event_cannot_bridge_two_different_meetings() {
+        // Two teams hold their own standup a minute apart, and a third,
+        // UID-less copy sits between them. Merging transitively would make one
+        // of the real standups disappear from the menu entirely.
+        let mut loose = ev("A-loose", 10 * H, 10 * H + 15 * M);
+        loose.title = "Standup".to_string();
+        let mut team_a = ev("B-team-a", 10 * H + 45, 10 * H + 15 * M + 45);
+        team_a.title = "Standup".to_string();
+        team_a.external_id = Some("uid-team-a".to_string());
+        let mut team_b = ev("C-team-b", 10 * H + 60, 10 * H + 15 * M + 60);
+        team_b.title = "Standup".to_string();
+        team_b.external_id = Some("uid-team-b".to_string());
+
+        let mut events = vec![loose, team_a, team_b];
+        let n = now_at(9 * H + 50 * M);
+        let cfg = Config::default();
+        for _ in 0..3 {
+            let menu = build_menu(&events, n, Access::FullAccess, false, &cfg);
+            assert_eq!(
+                menu.today.len(),
+                2,
+                "neither team's standup may vanish, rows: {:?}",
+                menu.today.iter().map(|r| &r.title).collect::<Vec<_>>()
+            );
+            events.rotate_left(1);
+        }
+    }
+
+    #[test]
+    fn an_event_you_made_for_yourself_is_not_marked_unanswered() {
+        let mut lunch = ev("Lunch", 13 * H, 14 * H);
+        lunch.self_status = None;
+        lunch.attendee_count = 0;
+        let mut invite = ev("Review", 15 * H, 16 * H);
+        invite.self_status = Some(SelfStatus::NeedsAction);
+
+        let menu = build_menu(
+            &[lunch, invite],
+            now_at(12 * H),
+            Access::FullAccess,
+            false,
+            &Config::default(),
+        );
+        let dimmed: Vec<(&str, bool)> = menu
+            .today
+            .iter()
+            .map(|r| (r.title.as_str(), r.dimmed))
+            .collect();
+        assert_eq!(dimmed, vec![("Lunch", false), ("Review", true)]);
+    }
+
+    #[test]
+    fn a_padded_zero_length_event_does_not_invent_a_conflict() {
+        // The five minute floor keeps a zero length event visible; it must not
+        // make it overlap the meeting that starts right after it.
+        let events = [ev("Ping", 10 * H, 10 * H), ev("Call", 10 * H + 2 * M, 11 * H)];
+        let menu = build_menu(&events, now_at(9 * H + 55 * M), Access::FullAccess, false, &Config::default());
+        assert!(menu.today.iter().all(|r| !r.conflict));
     }
 
     #[test]
