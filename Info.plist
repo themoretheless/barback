@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key>
+  <string>com.barback.barback</string>
+  <key>CFBundleName</key>
+  <string>Barback</string>
+  <key>CFBundleExecutable</key>
+  <string>barback</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>0.1.0</string>
+  <key>CFBundleVersion</key>
+  <string>1</string>
+  <!-- Menu bar only: no Dock icon, no main window. -->
+  <key>LSUIElement</key>
+  <true/>
+  <!-- macOS 14 and later ask for the FullAccess key; older systems ask for the
+       other one. Which one TCC demands depends on the SDK recorded in the
+       binary, which cargo does not let us pin, so ship both. Without them the
+       process is killed on the first EventKit call, not merely denied. -->
+  <key>NSCalendarsFullAccessUsageDescription</key>
+  <string>Barback shows your next meeting in the menu bar.</string>
+  <key>NSCalendarsUsageDescription</key>
+  <string>Barback shows your next meeting in the menu bar.</string>
+</dict>
+</plist>
