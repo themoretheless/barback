@@ -7,7 +7,7 @@ use core_foundation::string::CFString;
 use core_graphics::geometry::CGRect;
 
 use crate::cgs::{
-    describe_windows, menu_bar_window_ids, on_screen_window_ids, window_frame, CGWindowID,
+    CGWindowID, describe_windows, menu_bar_window_ids, on_screen_window_ids, window_frame,
 };
 
 #[derive(Debug, Clone)]
@@ -46,7 +46,7 @@ pub fn list() -> Vec<MenuBarItem> {
 
     descriptions
         .iter()
-        .filter_map(|dict| parse(&*dict, &on_screen))
+        .filter_map(|dict| parse(&dict, &on_screen))
         .collect()
 }
 

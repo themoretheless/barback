@@ -44,6 +44,9 @@ pub enum SelfStatus {
     Delegated,
 }
 
+/// Mirrors `EKAuthorizationStatus`, so the variants are named after it rather
+/// than after what reads well in isolation.
+#[allow(clippy::enum_variant_names)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Access {
     NotDetermined,
@@ -327,7 +330,11 @@ fn to_candidate(ev: &RawEvent, cfg: &Config) -> Candidate {
 /// Lowercased, whitespace-collapsed, reply-prefix-stripped title used only for
 /// matching duplicates that carry no shared UID.
 fn normalized_title(title: &str) -> String {
-    let mut s: String = title.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
+    let mut s: String = title
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .to_lowercase();
     const PREFIXES: [&str; 10] = [
         "re:",
         "fwd:",
@@ -379,7 +386,7 @@ fn merge_duplicates(
     // One representative UID per group, so a union can never bridge two groups
     // that carry different UIDs.
     let mut root_uid: Vec<Option<String>> = externals.clone();
-    fn find(parent: &mut Vec<usize>, mut x: usize) -> usize {
+    fn find(parent: &mut [usize], mut x: usize) -> usize {
         while parent[x] != x {
             parent[x] = parent[parent[x]];
             x = parent[x];
@@ -410,10 +417,10 @@ fn merge_duplicates(
             // Without this, one UID-less event sitting between two different
             // meetings with the same title merges all three transitively and a
             // real meeting vanishes from the menu.
-            if let (Some(x), Some(y)) = (&root_uid[ri], &root_uid[rj]) {
-                if x != y {
-                    continue;
-                }
+            if let (Some(x), Some(y)) = (&root_uid[ri], &root_uid[rj])
+                && x != y
+            {
+                continue;
             }
             let uid = root_uid[ri].take().or_else(|| root_uid[rj].take());
             parent[ri] = rj;
@@ -438,8 +445,11 @@ fn merge_duplicates(
         // member that carries real times over an all-day mirror.
         let mut order: Vec<usize> = group.clone();
         order.sort_by(|&a, &b| {
-            (cands[a].all_day, cands[a].calendar_rank, &cands[a].id)
-                .cmp(&(cands[b].all_day, cands[b].calendar_rank, &cands[b].id))
+            (cands[a].all_day, cands[a].calendar_rank, &cands[a].id).cmp(&(
+                cands[b].all_day,
+                cands[b].calendar_rank,
+                &cands[b].id,
+            ))
         });
         let winner = order[0];
 
@@ -450,9 +460,16 @@ fn merge_duplicates(
             .iter()
             .min_by_key(|&&i| (cands[i].participation, &cands[i].id))
             .unwrap_or(&winner);
-        let attendee_count = group.iter().map(|&i| cands[i].attendee_count).max().unwrap_or(0);
+        let attendee_count = group
+            .iter()
+            .map(|&i| cands[i].attendee_count)
+            .max()
+            .unwrap_or(0);
         // Subscribed mirrors routinely flatten everything to Free.
-        let availability = if group.iter().any(|&i| cands[i].availability == Availability::Busy) {
+        let availability = if group
+            .iter()
+            .any(|&i| cands[i].availability == Availability::Busy)
+        {
             Availability::Busy
         } else {
             cands[winner].availability
@@ -544,7 +561,11 @@ fn tier(c: &Candidate, now: Instant, cfg: &Config) -> u8 {
 
 fn rank_key(c: &Candidate, now: Instant, cfg: &Config) -> (u8, Instant, u8, bool, i64, u32) {
     let t = tier(c, now, cfg);
-    let sort_instant = if c.is_running(now) { c.eff_end } else { c.start };
+    let sort_instant = if c.is_running(now) {
+        c.eff_end
+    } else {
+        c.start
+    };
     (
         t,
         sort_instant,
@@ -660,7 +681,15 @@ pub fn truncate(text: &str, max: usize) -> String {
     }
     let keep: String = collapsed.chars().take(max.saturating_sub(1)).collect();
     let cut = match keep.rfind(' ') {
-        Some(i) if keep.chars().count().saturating_sub(keep[..i].chars().count()) <= 6 => &keep[..i],
+        Some(i)
+            if keep
+                .chars()
+                .count()
+                .saturating_sub(keep[..i].chars().count())
+                <= 6 =>
+        {
+            &keep[..i]
+        }
         _ => &keep[..],
     };
     let mut out = cut.trim_end().to_string();
@@ -681,7 +710,13 @@ fn display_title(title: &str, max: usize) -> String {
 // State and menu model
 // ---------------------------------------------------------------------------
 
-fn resolve_state(cands: &[Candidate], now: Now, access: Access, loading: bool, cfg: &Config) -> State {
+fn resolve_state(
+    cands: &[Candidate],
+    now: Now,
+    access: Access,
+    loading: bool,
+    cfg: &Config,
+) -> State {
     // Permission always wins over any cached selection, so revoking access while
     // the app runs cannot leave a stale meeting on screen.
     match access {
@@ -775,7 +810,11 @@ fn header_for(state: &State, now: Now, cfg: &Config) -> Header {
             Header {
                 primary: display_title(&sel.title, cfg.menu_title_max_chars),
                 secondary: Some(secondary),
-                tertiary: if tertiary.is_empty() { None } else { Some(tertiary) },
+                tertiary: if tertiary.is_empty() {
+                    None
+                } else {
+                    Some(tertiary)
+                },
                 tooltip: Some(sel.title.clone()),
                 action: HeaderAction::None,
             }
@@ -915,13 +954,13 @@ pub fn next_change_at(events: &[RawEvent], now: Now, cfg: &Config) -> Option<Ins
     marks.push(now.day_after_start);
 
     // The countdown of the currently selected meeting ticks on its own schedule.
-    if let Some(sel) = select_from(&cands, now, cfg) {
-        if sel.phase == Phase::Upcoming {
-            let d = sel.start.saturating_sub(now.instant);
-            if d <= cfg.near_threshold {
-                let m = ceil_min(d);
-                marks.push(sel.start.saturating_sub(60 * (m - 1).max(0)));
-            }
+    if let Some(sel) = select_from(&cands, now, cfg)
+        && sel.phase == Phase::Upcoming
+    {
+        let d = sel.start.saturating_sub(now.instant);
+        if d <= cfg.near_threshold {
+            let m = ceil_min(d);
+            marks.push(sel.start.saturating_sub(60 * (m - 1).max(0)));
         }
     }
 
@@ -961,8 +1000,14 @@ mod tests {
             calendar_rank: 0,
             start,
             end,
-            start_hm: (((start.rem_euclid(24 * H)) / H) as u8, ((start.rem_euclid(H)) / M) as u8),
-            end_hm: (((end.rem_euclid(24 * H)) / H) as u8, ((end.rem_euclid(H)) / M) as u8),
+            start_hm: (
+                ((start.rem_euclid(24 * H)) / H) as u8,
+                ((start.rem_euclid(H)) / M) as u8,
+            ),
+            end_hm: (
+                ((end.rem_euclid(24 * H)) / H) as u8,
+                ((end.rem_euclid(H)) / M) as u8,
+            ),
             all_day: false,
             status: EventStatus::Confirmed,
             availability: Availability::Busy,
@@ -1035,11 +1080,17 @@ mod tests {
     #[test]
     fn just_started_beats_imminent_but_settled_does_not() {
         // Two minutes into A, you are still arriving: A wins.
-        let events = [ev("A", 10 * H, 11 * H), ev("B", 10 * H + 3 * M, 10 * H + 33 * M)];
+        let events = [
+            ev("A", 10 * H, 11 * H),
+            ev("B", 10 * H + 3 * M, 10 * H + 33 * M),
+        ];
         assert_eq!(pick(&events, 10 * H + 2 * M).as_deref(), Some("A"));
 
         // Ten minutes in, the only useful information is the next transition.
-        let events = [ev("A", 10 * H, 11 * H), ev("B", 10 * H + 15 * M, 10 * H + 45 * M)];
+        let events = [
+            ev("A", 10 * H, 11 * H),
+            ev("B", 10 * H + 15 * M, 10 * H + 45 * M),
+        ];
         assert_eq!(pick(&events, 10 * H + 10 * M).as_deref(), Some("B"));
     }
 
@@ -1124,7 +1175,13 @@ mod tests {
         assert_eq!(pick(&events, 9 * H).as_deref(), Some("B"));
         assert_eq!(pick(&[offsite.clone()], 9 * H), None);
 
-        let menu = build_menu(&events, now_at(9 * H), Access::FullAccess, false, &Config::default());
+        let menu = build_menu(
+            &events,
+            now_at(9 * H),
+            Access::FullAccess,
+            false,
+            &Config::default(),
+        );
         assert_eq!(menu.all_day.len(), 1);
         assert_eq!(menu.today.len(), 1);
 
@@ -1175,7 +1232,10 @@ mod tests {
         let sel = select_nearest(&[a, b], now_at(9 * H + 50 * M), &Config::default()).unwrap();
         assert_eq!(sel.event_id, "A");
         assert_eq!(sel.merged_count, 2);
-        assert_eq!(sel.conflicts, 0, "a merged duplicate must not conflict with itself");
+        assert_eq!(
+            sel.conflicts, 0,
+            "a merged duplicate must not conflict with itself"
+        );
     }
 
     #[test]
@@ -1184,7 +1244,8 @@ mod tests {
         a.title = "Team Sync".to_string();
         let mut b = ev("B", 10 * H + 45, 10 * H + 30 * M + 45);
         b.title = "  team   SYNC ".to_string();
-        let sel = select_nearest(&[a.clone(), b], now_at(9 * H + 50 * M), &Config::default()).unwrap();
+        let sel =
+            select_nearest(&[a.clone(), b], now_at(9 * H + 50 * M), &Config::default()).unwrap();
         assert_eq!(sel.merged_count, 2);
 
         // 61 seconds apart is outside the tolerance, so these stay separate.
@@ -1261,8 +1322,17 @@ mod tests {
     fn a_padded_zero_length_event_does_not_invent_a_conflict() {
         // The five minute floor keeps a zero length event visible; it must not
         // make it overlap the meeting that starts right after it.
-        let events = [ev("Ping", 10 * H, 10 * H), ev("Call", 10 * H + 2 * M, 11 * H)];
-        let menu = build_menu(&events, now_at(9 * H + 55 * M), Access::FullAccess, false, &Config::default());
+        let events = [
+            ev("Ping", 10 * H, 10 * H),
+            ev("Call", 10 * H + 2 * M, 11 * H),
+        ];
+        let menu = build_menu(
+            &events,
+            now_at(9 * H + 55 * M),
+            Access::FullAccess,
+            false,
+            &Config::default(),
+        );
         assert!(menu.today.iter().all(|r| !r.conflict));
     }
 
@@ -1296,7 +1366,10 @@ mod tests {
         mine.is_organizer = true;
         let mut theirs = ev("Theirs", 10 * H, 10 * H + 30 * M);
         theirs.self_status = Some(SelfStatus::Tentative);
-        assert_eq!(pick(&[mine, theirs], 9 * H + 50 * M).as_deref(), Some("Mine"));
+        assert_eq!(
+            pick(&[mine, theirs], 9 * H + 50 * M).as_deref(),
+            Some("Mine")
+        );
     }
 
     #[test]
@@ -1318,7 +1391,7 @@ mod tests {
     fn a_twenty_five_hour_day_does_not_break_the_horizon() {
         // Fall back: the local day is 25 hours long, so "tomorrow" is not now + 86400.
         let now = Now {
-            instant: 1 * H + 30 * M,
+            instant: H + 30 * M,
             today_start: 0,
             tomorrow_start: 25 * H,
             day_after_start: 49 * H,
@@ -1337,12 +1410,21 @@ mod tests {
 
     #[test]
     fn overlaps_are_counted_and_surfaced() {
-        let events = [ev("A", 10 * H, 11 * H), ev("B", 10 * H + 30 * M, 11 * H + 30 * M)];
+        let events = [
+            ev("A", 10 * H, 11 * H),
+            ev("B", 10 * H + 30 * M, 11 * H + 30 * M),
+        ];
         let sel = select_nearest(&events, now_at(9 * H + 50 * M), &Config::default()).unwrap();
         assert_eq!(sel.event_id, "A");
         assert_eq!(sel.conflicts, 1);
 
-        let menu = build_menu(&events, now_at(9 * H + 50 * M), Access::FullAccess, false, &Config::default());
+        let menu = build_menu(
+            &events,
+            now_at(9 * H + 50 * M),
+            Access::FullAccess,
+            false,
+            &Config::default(),
+        );
         assert!(menu.today.iter().all(|r| r.conflict));
     }
 
@@ -1398,7 +1480,10 @@ mod tests {
         ] {
             let menu = build_menu(&events, n, access, false, &cfg);
             assert_eq!(menu.state, expected);
-            assert!(menu.today.is_empty(), "no meeting may leak into a denied menu");
+            assert!(
+                menu.today.is_empty(),
+                "no meeting may leak into a denied menu"
+            );
         }
         let menu = build_menu(&events, n, Access::FullAccess, true, &cfg);
         assert_eq!(menu.state, State::Loading);
@@ -1414,10 +1499,16 @@ mod tests {
 
     #[test]
     fn titles_are_collapsed_truncated_and_never_split_a_char() {
-        assert_eq!(truncate("Sprint  Planning\n Meeting", 40), "Sprint Planning Meeting");
+        assert_eq!(
+            truncate("Sprint  Planning\n Meeting", 40),
+            "Sprint Planning Meeting"
+        );
         assert_eq!(truncate("Sprint Planning Meeting", 12), "Sprint\u{2026}");
         assert_eq!(truncate("Retrospective", 6), "Retro\u{2026}");
-        assert_eq!(truncate("\u{4f1a}\u{8b70}\u{4f1a}\u{8b70}\u{4f1a}\u{8b70}", 3), "\u{4f1a}\u{8b70}\u{2026}");
+        assert_eq!(
+            truncate("\u{4f1a}\u{8b70}\u{4f1a}\u{8b70}\u{4f1a}\u{8b70}", 3),
+            "\u{4f1a}\u{8b70}\u{2026}"
+        );
         assert_eq!(display_title("   ", 20), "(no title)");
     }
 

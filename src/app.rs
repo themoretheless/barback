@@ -5,16 +5,16 @@ use std::cell::{Cell, RefCell};
 
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject, ProtocolObject};
-use objc2::{declare_class, msg_send_id, mutability, sel, ClassType, DeclaredClass};
+use objc2::{ClassType, DeclaredClass, declare_class, msg_send_id, mutability, sel};
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSMenu, NSMenuDelegate, NSMenuItem, NSStatusBar,
     NSStatusItem, NSVariableStatusItemLength, NSWorkspace,
 };
 use objc2_event_kit::{EKEventStore, EKEventStoreChangedNotification};
 use objc2_foundation::{
-    ns_string, MainThreadMarker, NSCalendarDayChangedNotification, NSNotificationCenter,
+    MainThreadMarker, NSCalendarDayChangedNotification, NSNotificationCenter,
     NSObjectNSThreadPerformAdditions, NSObjectProtocol, NSRunLoop, NSRunLoopCommonModes, NSString,
-    NSSystemTimeZoneDidChangeNotification, NSTimer, NSURL,
+    NSSystemTimeZoneDidChangeNotification, NSTimer, NSURL, ns_string,
 };
 
 use crate::calendar;
@@ -306,7 +306,6 @@ impl Controller {
             meeting::next_change_at(&events, now, &ivars.config)
         };
 
-
         let mtm = self.mtm();
         self.populate(&ivars.menu, &model, mtm);
         self.populate(&ivars.label_menu, &model, mtm);
@@ -377,7 +376,10 @@ impl Controller {
                 }
             }
             HeaderAction::RequestAccess => {
-                let text = header.secondary.as_deref().unwrap_or("Grant Calendar Access");
+                let text = header
+                    .secondary
+                    .as_deref()
+                    .unwrap_or("Grant Calendar Access");
                 menu.addItem(&self.action_item(
                     mtm,
                     text,
@@ -387,7 +389,10 @@ impl Controller {
                 ));
             }
             HeaderAction::OpenSettings => {
-                let text = header.secondary.as_deref().unwrap_or("Open Privacy Settings");
+                let text = header
+                    .secondary
+                    .as_deref()
+                    .unwrap_or("Open Privacy Settings");
                 menu.addItem(&self.action_item(
                     mtm,
                     text,
@@ -417,11 +422,7 @@ impl Controller {
                 // marking it keeps the overlap resolution legible.
                 let marker = if row.is_selected { "\u{25b8} " } else { "" };
                 let dimmed = if row.dimmed { " (not accepted)" } else { "" };
-                let item = self.info_item(
-                    mtm,
-                    &format!("{marker}{}{dimmed}", row.title),
-                    1,
-                );
+                let item = self.info_item(mtm, &format!("{marker}{}{dimmed}", row.title), 1);
                 unsafe { item.setToolTip(Some(&NSString::from_str(&row.tooltip))) };
                 menu.addItem(&item);
                 menu.addItem(&self.info_item(mtm, &row.detail, 2));

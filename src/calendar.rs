@@ -5,9 +5,9 @@
 //! Rust, which is what keeps the overlap rules testable without a Mac.
 
 use block2::{Block, RcBlock};
+use objc2::msg_send_id;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, Bool, NSObject, Sel};
-use objc2::msg_send_id;
 use objc2_event_kit::{
     EKAuthorizationStatus, EKCalendar, EKCalendarType, EKEntityType, EKEvent, EKEventAvailability,
     EKEventStatus, EKEventStore, EKParticipant, EKParticipantStatus, EKParticipantType,
@@ -16,9 +16,7 @@ use objc2_foundation::{
     NSArray, NSCalendar, NSCalendarOptions, NSCalendarUnit, NSDate, NSError, NSPredicate, NSString,
 };
 
-use crate::meeting::{
-    Access, Availability, EventStatus, Hm, Instant, Now, RawEvent, SelfStatus,
-};
+use crate::meeting::{Access, Availability, EventStatus, Hm, Instant, Now, RawEvent, SelfStatus};
 
 /// How far back to look, so a long meeting that started this morning is still
 /// found. The forward edge is the end of tomorrow, computed on the local
@@ -49,12 +47,7 @@ pub fn access() -> Access {
 /// `Retained<Controller>` is not `Send`, and releasing it on an EventKit thread
 /// would be exactly the thing `MainThreadOnly` forbids. This is sound only
 /// because the controller is leaked for the lifetime of the process.
-pub fn request_access(
-    store: &EKEventStore,
-    target: *const NSObject,
-    granted: Sel,
-    denied: Sel,
-) {
+pub fn request_access(store: &EKEventStore, target: *const NSObject, granted: Sel, denied: Sel) {
     let target = target as usize;
     let handler = RcBlock::new(move |ok: Bool, _err: *mut NSError| {
         let target = target as *const NSObject;
@@ -82,11 +75,7 @@ pub fn request_access(
 
 fn instant_of(date: &NSDate) -> Instant {
     let secs = unsafe { date.timeIntervalSince1970() };
-    if secs.is_finite() {
-        secs as Instant
-    } else {
-        0
-    }
+    if secs.is_finite() { secs as Instant } else { 0 }
 }
 
 fn date_at(instant: Instant) -> Retained<NSDate> {
@@ -159,7 +148,9 @@ fn opt_string(object: &AnyObject, selector: &str) -> Option<String> {
             "title" => msg_send_id![object, title],
             "eventIdentifier" => msg_send_id![object, eventIdentifier],
             "calendarItemIdentifier" => msg_send_id![object, calendarItemIdentifier],
-            "calendarItemExternalIdentifier" => msg_send_id![object, calendarItemExternalIdentifier],
+            "calendarItemExternalIdentifier" => {
+                msg_send_id![object, calendarItemExternalIdentifier]
+            }
             _ => None,
         }
     };
@@ -222,7 +213,7 @@ fn attendee_summary(event: &EKEvent) -> (Option<SelfStatus>, usize) {
     let mut others = 0usize;
     for participant in attendees.iter() {
         if unsafe { participant.isCurrentUser() } {
-            mine = Some(self_status_of(&participant));
+            mine = Some(self_status_of(participant));
             continue;
         }
         // Rooms and projectors must not make a solo block look like a meeting.
@@ -304,7 +295,7 @@ pub fn fetch(store: &EKEventStore, now: Now) -> Vec<RawEvent> {
     let cal = unsafe { NSCalendar::currentCalendar() };
     events
         .iter()
-        .filter_map(|event| convert(&event, &cal))
+        .filter_map(|event| convert(event, &cal))
         .collect()
 }
 
