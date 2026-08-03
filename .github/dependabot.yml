@@ -1,0 +1,33 @@
+# Pins rot quietly. Nothing in CI notices that actions/checkout is two majors
+# behind or that a crate shipped a security fix, because a green build is exactly
+# what a stale pin produces.
+#
+# Not covered here: rust-toolchain.toml. Dependabot has no Rust toolchain
+# ecosystem, so the compiler pin stays a manual bump, in its own commit, after
+# fixing whatever the new clippy has started complaining about.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    # One pull request for all of them. There are two actions in the tree and
+    # they move together; a pull request each would be pure noise.
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    # Minor and patch land in one batch: with fmt, clippy and the tests gating
+    # the merge, reviewing them separately buys nothing. Majors are deliberately
+    # left out of the group, so each one arrives as its own pull request. objc2
+    # 0.5 to 0.6 renames declare_class! to define_class! and rewrites every ivar
+    # declaration in app.rs; that is a review, not a rubber stamp, and it must
+    # not ride along in a batch.
+    groups:
+      compatible:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
