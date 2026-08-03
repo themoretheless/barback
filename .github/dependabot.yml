@@ -21,13 +21,17 @@ updates:
     directory: "/"
     schedule:
       interval: "monthly"
-    # Minor and patch land in one batch: with fmt, clippy and the tests gating
-    # the merge, reviewing them separately buys nothing. Majors are deliberately
-    # left out of the group, so each one arrives as its own pull request. objc2
-    # 0.5 to 0.6 renames declare_class! to define_class! and rewrites every ivar
-    # declaration in app.rs; that is a review, not a rubber stamp, and it must
-    # not ride along in a batch.
+    # Patch only, which is narrower than it looks: every dependency here is a 0.x
+    # release, and cargo treats the minor of a 0.x as breaking, so ^0.5 resolves
+    # to >=0.5.0, <0.6.0. Dependabot names update types by position, which makes
+    # 0.5 to 0.6 a "minor" to it and a rewrite to us. Grouping minors would
+    # therefore batch precisely the changes that have to be read: objc2 0.5 to
+    # 0.6 renames declare_class! to define_class! and reworks every ivar
+    # declaration in app.rs.
+    #
+    # There is no group for majors because not one dependency has reached 1.0.
+    # Revisit both halves of this when one does.
     groups:
-      compatible:
+      patches:
         patterns: ["*"]
-        update-types: ["minor", "patch"]
+        update-types: ["patch"]
