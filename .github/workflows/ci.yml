@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: macos-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: themoretheless/.github/.github/actions/setup-rust@eb557370f9aae2547ddbbdce8bf2a8798e68dad2 # v1
+        with:
+          rust-toolchain: beta
+          # The action installs with --profile minimal, so the components the
+          # steps below depend on have to be asked for by name.
+          components: rustfmt, clippy
+
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+      - name: Build
+        run: cargo build --locked
+
+      - name: Run tests
+        run: cargo test --locked
+
+      - name: Run Clippy
+        run: cargo clippy --locked --all-targets -- -D warnings
+
+      # Not covered by anything above: make-app.sh produces the artifact users
+      # actually run, and a break in it would otherwise surface only during a
+      # release. Ad-hoc signing needs no secrets, so this stays in the no-secret
+      # workflow.
+      - name: Assemble the app bundle
+        run: tools/make-app.sh release

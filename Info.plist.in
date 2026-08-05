@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Template. @VERSION@ and @BUILD@ are substituted by build.rs (for the copy
+     embedded into the Mach-O) and by tools/make-app.sh (for the bundle), both
+     reading the version out of Cargo.toml. Do not hand-edit a generated copy. -->
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key>
+  <string>com.barback.barback</string>
+  <key>CFBundleName</key>
+  <string>Barback</string>
+  <key>CFBundleExecutable</key>
+  <string>barback</string>
+  <key>CFBundlePackageType</key>
+  <string>APPL</string>
+  <key>CFBundleShortVersionString</key>
+  <string>@VERSION@</string>
+  <!-- Must never decrease between releases: macOS and every updater treat a
+       smaller value as an older build. CI passes the run number in BARBACK_BUILD;
+       a local build falls back to the marketing version. -->
+  <key>CFBundleVersion</key>
+  <string>@BUILD@</string>
+  <!-- Menu bar only: no Dock icon, no main window. -->
+  <key>LSUIElement</key>
+  <true/>
+  <!-- macOS 14 and later ask for the FullAccess key; older systems ask for the
+       other one. Which one TCC demands depends on the SDK recorded in the
+       binary, which cargo does not let us pin, so ship both. Without them the
+       process is killed on the first EventKit call, not merely denied. -->
+  <key>NSCalendarsFullAccessUsageDescription</key>
+  <string>Barback shows your next meeting in the menu bar.</string>
+  <key>NSCalendarsUsageDescription</key>
+  <string>Barback shows your next meeting in the menu bar.</string>
+</dict>
+</plist>

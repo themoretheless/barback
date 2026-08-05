@@ -1,0 +1,138 @@
+name: Release
+
+# A tag, not a branch push and not a button: the tag is the immutable thing a
+# shipped build can be traced back to.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  # Never cancel a release halfway: a partly published release is worse than a
+  # duplicated run.
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: macos-15
+    env:
+      # CFBundleVersion must not decrease between releases, and the run number is
+      # the only counter here that cannot go backwards.
+      BARBACK_BUILD: ${{ github.run_number }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Two sources of the version that can silently disagree; catching it costs
+      # four lines and saves a release that says 0.1.0 while being tagged 0.2.0.
+      - name: Check the tag against Cargo.toml
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          crate="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)"
+          if [ "$tag" != "$crate" ]; then
+            echo "tag $GITHUB_REF_NAME does not match the Cargo.toml version $crate" >&2
+            exit 1
+          fi
+
+      # The secrets context is not available in an `if:`, so the decision is made
+      # once here and every later step keys off this output. An incomplete set of
+      # secrets degrades to an ad-hoc build instead of failing: that is still a
+      # useful artifact for anyone willing to override Gatekeeper by hand.
+      - name: Decide whether this build can be signed
+        id: signing
+        env:
+          CERT: ${{ secrets.MACOS_CERT_P12 }}
+          CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+          KEY: ${{ secrets.APPLE_API_KEY_P8 }}
+          KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          ISSUER: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: |
+          if [ -n "$CERT" ] && [ -n "$CERT_PASSWORD" ] && [ -n "$KEY" ] \
+            && [ -n "$KEY_ID" ] && [ -n "$ISSUER" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::Signing secrets are missing or incomplete. Shipping an ad-hoc signed build: Gatekeeper will block it and the calendar grant will not survive an update."
+          fi
+
+      # Same shared action as CI, and it brings the cache with it. Stable rather
+      # than the beta the checks run on: a shipped binary should not be built by
+      # a compiler that has not shipped.
+      - name: Set up Rust
+        uses: themoretheless/.github/.github/actions/setup-rust@eb557370f9aae2547ddbbdce8bf2a8798e68dad2 # v1
+        with:
+          rust-toolchain: stable
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+
+      - name: Test before shipping
+        run: cargo test --locked
+
+      # The runners are arm64, so the Intel half is a cross build. Both halves
+      # embed the same generated plist because BARBACK_BUILD is set job-wide.
+      - name: Build a universal binary
+        run: |
+          cargo build --locked --release --target aarch64-apple-darwin
+          cargo build --locked --release --target x86_64-apple-darwin
+          mkdir -p target/universal
+          lipo -create -output target/universal/barback \
+            target/aarch64-apple-darwin/release/barback \
+            target/x86_64-apple-darwin/release/barback
+          lipo -info target/universal/barback
+
+      - name: Import the signing certificate
+        id: keychain
+        if: steps.signing.outputs.enabled == 'true'
+        env:
+          MACOS_CERT_P12: ${{ secrets.MACOS_CERT_P12 }}
+          MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        run: tools/ci-keychain.sh
+
+      # Falls back to "-" (ad-hoc) when the import step was skipped.
+      - name: Assemble and sign the app bundle
+        env:
+          BARBACK_BIN: ${{ github.workspace }}/target/universal/barback
+          SIGN_ID: ${{ steps.keychain.outputs.sign-id || '-' }}
+        run: tools/make-app.sh release
+
+      - name: Notarize
+        if: steps.signing.outputs.enabled == 'true'
+        env:
+          APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER_ID: ${{ secrets.APPLE_API_ISSUER_ID }}
+        run: tools/ci-notarize.sh target/Barback.app
+
+      # ditto, not zip: zip drops the extended attributes holding the signature.
+      # Packaging happens after stapling so the shipped archive carries the
+      # ticket and the first launch works offline.
+      - name: Package
+        run: |
+          mkdir -p target/dist
+          name="Barback-${GITHUB_REF_NAME}-universal.zip"
+          ditto -c -k --keepParent target/Barback.app "target/dist/$name"
+          shasum -a 256 "target/dist/$name" > "target/dist/$name.sha256"
+
+      # Draft, so a human reads the generated notes before anyone can download
+      # the thing. Publishing is one click in the Releases tab.
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SIGNED: ${{ steps.signing.outputs.enabled }}
+        run: |
+          title="$GITHUB_REF_NAME"
+          if [ "$SIGNED" != "true" ]; then
+            title="$GITHUB_REF_NAME (unsigned)"
+          fi
+          gh release create "$GITHUB_REF_NAME" \
+            --draft \
+            --title "$title" \
+            --generate-notes \
+            target/dist/*
+
+      # always(): a failed build must not leave a private key on the runner.
+      - name: Remove the signing keychain
+        if: always()
+        run: tools/ci-keychain-clean.sh "${{ steps.keychain.outputs.keychain }}"

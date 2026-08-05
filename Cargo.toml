@@ -7,3 +7,47 @@ edition = "2024"
 chrono = { version = "0.4", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10"
+core-graphics = "0.24"
+objc2 = "0.5"
+# NSPredicate, NSURL and NSTimeZone also arrive transitively through
+# objc2-event-kit, but they are listed here so a future dependency change cannot
+# silently break the build.
+objc2-foundation = { version = "0.2", features = [
+    "NSString",
+    "NSGeometry",
+    "NSObjCRuntime",
+    "NSThread",
+    "NSDate",
+    "NSCalendar",
+    "NSNotification",
+    "NSError",
+    "NSArray",
+    "NSEnumerator",
+    "NSTimer",
+    "NSRunLoop",
+    "NSDictionary",
+    "NSValue",
+    "NSPredicate",
+    "NSURL",
+    "NSTimeZone",
+] }
+objc2-app-kit = { version = "0.2", features = [
+    "NSApplication",
+    "NSStatusBar",
+    "NSStatusItem",
+    "NSStatusBarButton",
+    "NSMenu",
+    "NSMenuItem",
+    "NSResponder",
+    "NSRunningApplication",
+    "NSImage",
+    "NSButton",
+    "NSControl",
+    "NSView",
+    "NSWorkspace",
+] }
+objc2-event-kit = { version = "0.2", features = ["EKEventStore", "EKEvent", "EKCalendar", "EKCalendarItem", "EKParticipant", "EKObject", "EKTypes", "block2"] }
+block2 = "0.5"

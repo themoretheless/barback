@@ -37,8 +37,8 @@ fn main() -> ExitCode {
 
 fn run() -> Result<(), String> {
     let args: Vec<String> = env::args().skip(1).collect();
-    let mut store =
-        Store::load(PathBuf::from("barback.json")).map_err(|e| format!("чтение barback.json: {e}"))?;
+    let mut store = Store::load(PathBuf::from("barback.json"))
+        .map_err(|e| format!("чтение barback.json: {e}"))?;
     let today = Local::now().date_naive();
 
     match args.first().map(String::as_str) {
@@ -51,7 +51,9 @@ fn run() -> Result<(), String> {
                 "%Y-%m-%d %H:%M",
             )
             .map_err(|e| format!("дата/время: {e}"))?;
-            let duration_min: i64 = args[3].parse().map_err(|_| "минуты: не число".to_string())?;
+            let duration_min: i64 = args[3]
+                .parse()
+                .map_err(|_| "минуты: не число".to_string())?;
             if duration_min <= 0 {
                 return Err("минуты: должно быть > 0".into());
             }
@@ -79,7 +81,10 @@ fn run() -> Result<(), String> {
             };
             for other in &store.events {
                 if let Some(t) = other.occurrence_on(start.date()) {
-                    let shifted = Event { start: t, ..other.clone() };
+                    let shifted = Event {
+                        start: t,
+                        ..other.clone()
+                    };
                     if shifted.overlaps(&ev) {
                         println!(
                             "Внимание: пересекается с [{}] {} ({})",
