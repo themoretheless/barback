@@ -24,7 +24,7 @@ jobs:
       BARBACK_BUILD: ${{ github.run_number }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Two sources of the version that can silently disagree; catching it costs
       # four lines and saves a release that says 0.1.0 while being tagged 0.2.0.
@@ -59,7 +59,7 @@ jobs:
           fi
 
       - name: Cache cargo
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ~/.cargo/registry/index
