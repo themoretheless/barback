@@ -12,10 +12,10 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Set up Rust
-        uses: themoretheless/.github/.github/actions/setup-rust@eb557370f9aae2547ddbbdce8bf2a8798e68dad2 # v1
+        uses: themoretheless/.github/.github/actions/setup-rust@d66cd190a0d7a8b45f909dfa97597be34ec93f1f # v1
         with:
           rust-toolchain: beta
           # The action installs with --profile minimal, so the components the
