@@ -60,5 +60,5 @@ objc2-app-kit = { version = "0.2", features = [
     "NSView",
     "NSWorkspace",
 ] }
-objc2-event-kit = { version = "0.2", features = ["EKEventStore", "EKEvent", "EKCalendar", "EKCalendarItem", "EKParticipant", "EKObject", "EKTypes", "block2"] }
+objc2-event-kit = { version = "0.3", features = ["EKEventStore", "EKEvent", "EKCalendar", "EKCalendarItem", "EKParticipant", "EKObject", "EKTypes", "block2"] }
 block2 = "0.5"
