@@ -1,347 +1,162 @@
-//! Small CLI for exercising the calendar integrations by hand.
-//!
-//! ```text
-//! barback providers
-//! barback oauth-url --provider google --client-id ID --redirect-uri URL
-//! barback list --provider apple-icloud --user ada@icloud.com --days 7
-//! barback list --provider ics-feed --base-url https://example.com/feed.ics
-//! ```
-//!
-//! Credentials are read from `BARBACK_PASSWORD` / `BARBACK_TOKEN` by
-//! preference. The equivalent flags exist but put the secret in the process
-//! list, where anyone on the machine can read it.
+#![cfg(target_os = "macos")]
 
-use std::collections::HashMap;
-use std::process::ExitCode;
+mod cgs;
+mod menu_bar_items;
 
-use barback::calendar::providers::{AuthKind, Engine, ProviderConfig, ProviderKind};
-use barback::calendar::{Auth, Result, TimeRange};
+use std::cell::Cell;
 
-#[tokio::main]
-async fn main() -> ExitCode {
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    let Some(command) = args.first().map(String::as_str) else {
-        print_usage();
-        return ExitCode::FAILURE;
-    };
+use objc2::rc::Retained;
+use objc2::runtime::AnyObject;
+use objc2::{declare_class, msg_send_id, mutability, sel, ClassType, DeclaredClass};
+use objc2_app_kit::{
+    NSApplication, NSApplicationActivationPolicy, NSMenu, NSMenuItem, NSStatusBar, NSStatusItem,
+    NSVariableStatusItemLength,
+};
+use objc2_foundation::{ns_string, MainThreadMarker, NSObject, NSObjectProtocol, NSString};
 
-    let flags = parse_flags(&args[1..]);
+struct ControllerIvars {
+    status_item: Retained<NSStatusItem>,
+    hidden: Cell<bool>,
+}
 
-    let outcome = match command {
-        "providers" => {
-            print_providers();
-            Ok(())
+declare_class!(
+    struct Controller;
+
+    unsafe impl ClassType for Controller {
+        type Super = NSObject;
+        type Mutability = mutability::MainThreadOnly;
+        const NAME: &'static str = "BarbackController";
+    }
+
+    impl DeclaredClass for Controller {
+        type Ivars = ControllerIvars;
+    }
+
+    unsafe impl NSObjectProtocol for Controller {}
+
+    unsafe impl Controller {
+        #[method(toggleHidden:)]
+        fn toggle_hidden(&self, _sender: Option<&AnyObject>) {
+            let now_hidden = !self.ivars().hidden.get();
+            self.ivars().hidden.set(now_hidden);
+            self.refresh_title();
+            self.dump_items();
+            // TODO: synthesize ⌘-drag via CGEvent to actually move items.
         }
-        "oauth-url" => print_oauth_url(&flags),
-        "list" => list_events(&flags).await,
-        "help" | "--help" | "-h" => {
-            print_usage();
-            Ok(())
-        }
-        other => {
-            eprintln!("unknown command: {other}\n");
-            print_usage();
-            return ExitCode::FAILURE;
-        }
-    };
 
-    match outcome {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(error) => {
-            eprintln!("error: {error}");
-            ExitCode::FAILURE
+        #[method(dumpItems:)]
+        fn dump_items_action(&self, _sender: Option<&AnyObject>) {
+            self.dump_items();
+        }
+
+        #[method(quit:)]
+        fn quit(&self, _sender: Option<&AnyObject>) {
+            let mtm = MainThreadMarker::from(self);
+            let app = NSApplication::sharedApplication(mtm);
+            unsafe { app.terminate(None) };
         }
     }
-}
+);
 
-fn print_usage() {
-    eprintln!(
-        "usage:
-  barback providers
-      List the supported calendar services.
+impl Controller {
+    fn new(mtm: MainThreadMarker) -> Retained<Self> {
+        let status_bar = unsafe { NSStatusBar::systemStatusBar() };
+        let status_item =
+            unsafe { status_bar.statusItemWithLength(NSVariableStatusItemLength) };
 
-  barback oauth-url --provider <slug> --client-id <id> --redirect-uri <url>
-      Print the authorization URL to open in a browser.
+        let this = mtm.alloc::<Self>().set_ivars(ControllerIvars {
+            status_item,
+            hidden: Cell::new(false),
+        });
+        let this: Retained<Self> = unsafe { msg_send_id![super(this), init] };
 
-  barback list --provider <slug> [options]
-      List upcoming events.
-
-      --base-url <url>    Required for nextcloud, zimbra and ics-feed.
-      --user <name>       Username for CalDAV providers.
-      --password <pw>     Prefer the BARBACK_PASSWORD environment variable.
-      --token <token>     Prefer the BARBACK_TOKEN environment variable.
-      --calendar <id>     Default: every calendar in the account.
-      --days <n>          Window size, default 7."
-    );
-}
-
-fn print_providers() {
-    for kind in ProviderKind::ALL {
-        let preset = kind.preset();
-        let engine = match preset.engine {
-            Engine::Google => "Google Calendar API",
-            Engine::Graph => "Microsoft Graph",
-            Engine::CalDav => "CalDAV",
-            Engine::Ics => "iCalendar feed (read-only)",
-        };
-        let auth = match preset.auth {
-            AuthKind::OAuth2 => "OAuth2",
-            AuthKind::AppPassword => "app-specific password",
-            AuthKind::Password => "username + password",
-            AuthKind::Anonymous => "none",
-        };
-
-        println!("{:<14} {}", preset.slug, preset.display_name);
-        println!("{:<14} engine: {engine}, auth: {auth}", "");
-        match preset.base_url {
-            Some(url) => println!("{:<14} endpoint: {url}", ""),
-            None if preset.base_url_required => {
-                println!("{:<14} endpoint: must be supplied with --base-url", "")
-            }
-            None => {}
-        }
-        println!("{:<14} {}", "", preset.notes);
-        println!();
+        this.install_menu();
+        this.refresh_title();
+        this
     }
-}
 
-fn print_oauth_url(flags: &HashMap<String, String>) -> Result<()> {
-    let kind = provider_kind(flags)?;
-    let Some((auth_url, _token_url, scopes)) = kind.oauth_endpoints() else {
-        return Err(config_error(format!(
-            "{} does not use OAuth2",
-            kind.preset().display_name
-        )));
-    };
+    fn install_menu(&self) {
+        let mtm = MainThreadMarker::from(self);
+        let menu = NSMenu::new(mtm);
 
-    let client_id = required(flags, "client-id")?;
-    let redirect_uri = required(flags, "redirect-uri")?;
+        let toggle = unsafe {
+            NSMenuItem::initWithTitle_action_keyEquivalent(
+                mtm.alloc::<NSMenuItem>(),
+                ns_string!("Toggle Hidden Items"),
+                Some(sel!(toggleHidden:)),
+                ns_string!("h"),
+            )
+        };
+        unsafe { toggle.setTarget(Some(self)) };
+        menu.addItem(&toggle);
 
-    let config = barback::calendar::OAuth2Config {
-        client_id,
-        client_secret: flags.get("client-secret").cloned(),
-        auth_url: auth_url.to_string(),
-        token_url: _token_url.to_string(),
-        scopes: scopes.iter().map(|s| s.to_string()).collect(),
-        redirect_uri,
-    };
-    let client = barback::calendar::OAuth2::new(
-        config,
-        barback::calendar::TokenSet::default(),
-        reqwest::Client::new(),
-    );
+        let dump = unsafe {
+            NSMenuItem::initWithTitle_action_keyEquivalent(
+                mtm.alloc::<NSMenuItem>(),
+                ns_string!("Log Menubar Items"),
+                Some(sel!(dumpItems:)),
+                ns_string!("l"),
+            )
+        };
+        unsafe { dump.setTarget(Some(self)) };
+        menu.addItem(&dump);
 
-    println!("{}", client.authorize_url("barback-cli"));
-    Ok(())
-}
+        menu.addItem(&NSMenuItem::separatorItem(mtm));
 
-async fn list_events(flags: &HashMap<String, String>) -> Result<()> {
-    let kind = provider_kind(flags)?;
-    let provider = kind.connect(build_config(kind, flags)?)?;
+        let quit = unsafe {
+            NSMenuItem::initWithTitle_action_keyEquivalent(
+                mtm.alloc::<NSMenuItem>(),
+                ns_string!("Quit Barback"),
+                Some(sel!(quit:)),
+                ns_string!("q"),
+            )
+        };
+        unsafe { quit.setTarget(Some(self)) };
+        menu.addItem(&quit);
 
-    let days: i64 = flags
-        .get("days")
-        .map(|d| d.parse::<i64>())
-        .transpose()
-        .map_err(|e| config_error(format!("--days must be a number: {e}")))?
-        .unwrap_or(7);
-    let range = TimeRange::days_from_now(days);
+        unsafe { self.ivars().status_item.setMenu(Some(&menu)) };
+    }
 
-    let calendars = match flags.get("calendar") {
-        Some(id) => vec![id.clone()],
-        None => provider
-            .list_calendars()
-            .await?
-            .into_iter()
-            .map(|c| {
-                println!("calendar: {} ({})", c.name, c.id);
-                c.id
-            })
-            .collect(),
-    };
-
-    for calendar_id in calendars {
-        let mut events = provider.list_events(&calendar_id, range).await?;
-        events.sort_by_key(|e| e.start.to_utc());
-
-        println!("\n{} event(s) in {calendar_id}", events.len());
-        for event in events {
-            let when = if event.all_day() {
-                event
-                    .start
-                    .to_utc()
-                    .format("%Y-%m-%d (all day)")
-                    .to_string()
-            } else {
-                event
-                    .start
-                    .to_utc()
-                    .format("%Y-%m-%d %H:%M UTC")
-                    .to_string()
-            };
-            let recurring = if event.recurrence.is_empty() {
-                ""
-            } else {
-                " [recurring]"
+    fn dump_items(&self) {
+        let items = menu_bar_items::list();
+        println!("--- {} menubar items ---", items.len());
+        for item in &items {
+            let (x, w) = match item.frame {
+                Some(f) => (f.origin.x, f.size.width),
+                None => (f64::NAN, f64::NAN),
             };
             println!(
-                "  {when}  {}{recurring}",
-                event.summary.as_deref().unwrap_or("(no title)")
+                "  [{:>9}] pid={:>6} on={:5} x={:>7.1} w={:>6.1} {}",
+                item.window_id,
+                item.owner_pid,
+                item.on_screen,
+                x,
+                w,
+                item.display_name(),
             );
         }
     }
 
-    Ok(())
-}
-
-fn build_config(kind: ProviderKind, flags: &HashMap<String, String>) -> Result<ProviderConfig> {
-    let preset = kind.preset();
-
-    let token = flags
-        .get("token")
-        .cloned()
-        .or_else(|| std::env::var("BARBACK_TOKEN").ok());
-    let password = flags
-        .get("password")
-        .cloned()
-        .or_else(|| std::env::var("BARBACK_PASSWORD").ok());
-
-    let auth = match preset.auth {
-        AuthKind::OAuth2 => Auth::Bearer(token.ok_or_else(|| {
-            config_error(
-                "an access token is required: set BARBACK_TOKEN or pass --token. \
-                 Use `barback oauth-url` to obtain one.",
-            )
-        })?),
-        AuthKind::AppPassword | AuthKind::Password => {
-            let user = required(flags, "user")?;
-            let password = password.ok_or_else(|| {
-                config_error("a password is required: set BARBACK_PASSWORD or pass --password")
-            })?;
-            Auth::basic(user, password)
+    fn refresh_title(&self) {
+        let title: &NSString = if self.ivars().hidden.get() {
+            ns_string!("▶")
+        } else {
+            ns_string!("◀")
+        };
+        if let Some(button) = unsafe { self.ivars().status_item.button(MainThreadMarker::from(self)) } {
+            unsafe { button.setTitle(title) };
         }
-        AuthKind::Anonymous => match (flags.get("user"), password) {
-            (Some(user), Some(password)) => Auth::basic(user, password),
-            _ => Auth::None,
-        },
-    };
-
-    let mut config = ProviderConfig::new(auth);
-    if let Some(base_url) = flags.get("base-url") {
-        config = config.with_base_url(base_url);
     }
-    Ok(config)
 }
 
-fn provider_kind(flags: &HashMap<String, String>) -> Result<ProviderKind> {
-    let slug = required(flags, "provider")?;
-    ProviderKind::from_slug(&slug).ok_or_else(|| {
-        config_error(format!(
-            "unknown provider {slug:?}; run `barback providers` to see the list"
-        ))
-    })
-}
+fn main() {
+    let mtm = MainThreadMarker::new().expect("must run on the main thread");
+    let app = NSApplication::sharedApplication(mtm);
+    app.setActivationPolicy(NSApplicationActivationPolicy::Accessory);
 
-fn required(flags: &HashMap<String, String>, name: &str) -> Result<String> {
-    flags
-        .get(name)
-        .cloned()
-        .ok_or_else(|| config_error(format!("--{name} is required")))
-}
+    // Keep the controller alive for the lifetime of the app.
+    let _controller = Controller::new(mtm);
+    std::mem::forget(_controller);
 
-fn config_error(message: impl Into<String>) -> barback::calendar::CalendarError {
-    barback::calendar::CalendarError::Config(message.into())
-}
-
-/// Parses `--key value` and `--flag` pairs. Bare flags map to an empty string.
-fn parse_flags(args: &[String]) -> HashMap<String, String> {
-    let mut flags = HashMap::new();
-    let mut index = 0;
-
-    while index < args.len() {
-        let Some(name) = args[index].strip_prefix("--") else {
-            index += 1;
-            continue;
-        };
-        let value = match args.get(index + 1) {
-            Some(next) if !next.starts_with("--") => {
-                index += 1;
-                next.clone()
-            }
-            _ => String::new(),
-        };
-        flags.insert(name.to_string(), value);
-        index += 1;
-    }
-
-    flags
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn args(values: &[&str]) -> Vec<String> {
-        values.iter().map(|s| s.to_string()).collect()
-    }
-
-    #[test]
-    fn parses_key_value_pairs() {
-        let flags = parse_flags(&args(&["--provider", "google", "--days", "14"]));
-        assert_eq!(flags.get("provider").map(String::as_str), Some("google"));
-        assert_eq!(flags.get("days").map(String::as_str), Some("14"));
-    }
-
-    #[test]
-    fn bare_flags_get_an_empty_value() {
-        let flags = parse_flags(&args(&["--verbose", "--provider", "google"]));
-        assert_eq!(flags.get("verbose").map(String::as_str), Some(""));
-        assert_eq!(flags.get("provider").map(String::as_str), Some("google"));
-    }
-
-    #[test]
-    fn values_containing_spaces_survive() {
-        let flags = parse_flags(&args(&["--user", "ada lovelace"]));
-        assert_eq!(flags.get("user").map(String::as_str), Some("ada lovelace"));
-    }
-
-    #[test]
-    fn unknown_provider_is_a_clear_error() {
-        let flags = parse_flags(&args(&["--provider", "nope"]));
-        let err = provider_kind(&flags).expect_err("should be rejected");
-        assert!(err.to_string().contains("unknown provider"));
-    }
-
-    #[test]
-    fn oauth_provider_without_a_token_is_rejected() {
-        // Guard against a stray token in the developer's environment.
-        unsafe { std::env::remove_var("BARBACK_TOKEN") };
-        let flags = parse_flags(&args(&["--provider", "google"]));
-        let err = build_config(ProviderKind::Google, &flags)
-            .err()
-            .expect("a token is required");
-        assert!(err.to_string().contains("access token"));
-    }
-
-    #[test]
-    fn caldav_provider_needs_a_user() {
-        unsafe { std::env::set_var("BARBACK_PASSWORD", "pw") };
-        let flags = parse_flags(&args(&["--provider", "apple-icloud"]));
-        let err = build_config(ProviderKind::AppleICloud, &flags)
-            .err()
-            .expect("a user is required");
-        assert!(err.to_string().contains("--user"));
-        unsafe { std::env::remove_var("BARBACK_PASSWORD") };
-    }
-
-    #[test]
-    fn ics_feed_works_without_credentials() {
-        let flags = parse_flags(&args(&["--base-url", "https://example.com/f.ics"]));
-        let config = build_config(ProviderKind::IcsFeed, &flags).unwrap();
-        assert!(matches!(config.auth, Auth::None));
-        assert_eq!(
-            config.base_url.as_deref(),
-            Some("https://example.com/f.ics")
-        );
-    }
+    unsafe { app.run() };
 }

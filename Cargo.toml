@@ -18,3 +18,28 @@ url = "2.5.8"
 
 [dev-dependencies]
 wiremock = "0.6.5"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10"
+core-graphics = "0.24"
+objc2 = "0.5"
+objc2-foundation = { version = "0.2", features = [
+    "NSString",
+    "NSGeometry",
+    "NSObjCRuntime",
+    "NSThread",
+] }
+objc2-app-kit = { version = "0.2", features = [
+    "NSApplication",
+    "NSStatusBar",
+    "NSStatusItem",
+    "NSStatusBarButton",
+    "NSMenu",
+    "NSMenuItem",
+    "NSResponder",
+    "NSRunningApplication",
+    "NSImage",
+    "NSButton",
+    "NSControl",
+    "NSView",
+] }
