@@ -18,6 +18,9 @@ jobs:
         uses: themoretheless/.github/.github/actions/setup-rust@eb557370f9aae2547ddbbdce8bf2a8798e68dad2 # v1
         with:
           rust-toolchain: beta
+          # The action installs with --profile minimal, so the components the
+          # steps below depend on have to be asked for by name.
+          components: rustfmt, clippy
 
       - name: Check formatting
         run: cargo fmt --all -- --check

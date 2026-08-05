@@ -58,27 +58,24 @@ jobs:
             echo "::warning::Signing secrets are missing or incomplete. Shipping an ad-hoc signed build: Gatekeeper will block it and the calendar grant will not survive an update."
           fi
 
-      - name: Cache cargo
-        uses: actions/cache@v4
+      # Same shared action as CI, and it brings the cache with it. Stable rather
+      # than the beta the checks run on: a shipped binary should not be built by
+      # a compiler that has not shipped.
+      - name: Set up Rust
+        uses: themoretheless/.github/.github/actions/setup-rust@eb557370f9aae2547ddbbdce8bf2a8798e68dad2 # v1
         with:
-          path: |
-            ~/.cargo/registry/index
-            ~/.cargo/registry/cache
-            ~/.cargo/git/db
-            target
-          key: release-cargo-${{ runner.os }}-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
-          restore-keys: release-cargo-${{ runner.os }}-
+          rust-toolchain: stable
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
 
       - name: Test before shipping
-        run: cargo test
+        run: cargo test --locked
 
       # The runners are arm64, so the Intel half is a cross build. Both halves
       # embed the same generated plist because BARBACK_BUILD is set job-wide.
       - name: Build a universal binary
         run: |
-          rustup target add aarch64-apple-darwin x86_64-apple-darwin
-          cargo build --release --target aarch64-apple-darwin
-          cargo build --release --target x86_64-apple-darwin
+          cargo build --locked --release --target aarch64-apple-darwin
+          cargo build --locked --release --target x86_64-apple-darwin
           mkdir -p target/universal
           lipo -create -output target/universal/barback \
             target/aarch64-apple-darwin/release/barback \
