@@ -12,8 +12,9 @@ fn main() {
     // TCC refuses calendar access to an executable that carries no usage
     // description, and it does not merely deny: it kills the process. A bare
     // cargo binary has no bundle to read one from, so embed the plist directly
-    // into the Mach-O. The `-bins` form keeps the section off build scripts and
-    // test harnesses, which must not carry it.
+    // into the Mach-O. Named rather than `-bins`, which would put the app's
+    // plist into the calendar CLI as well: that binary is not the menu bar app,
+    // does not want LSUIElement, and should ask TCC for nothing.
     //
     // The plist is generated rather than checked in so that the version cannot
     // drift away from Cargo.toml. tools/make-app.sh substitutes the same two
@@ -34,5 +35,5 @@ fn main() {
     let plist_path = format!("{out_dir}/Info.plist");
     std::fs::write(&plist_path, plist).expect("the generated plist is writable");
 
-    println!("cargo:rustc-link-arg-bins=-Wl,-sectcreate,__TEXT,__info_plist,{plist_path}");
+    println!("cargo:rustc-link-arg-bin=barback=-Wl,-sectcreate,__TEXT,__info_plist,{plist_path}");
 }

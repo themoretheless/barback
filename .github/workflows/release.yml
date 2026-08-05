@@ -72,10 +72,15 @@ jobs:
 
       # The runners are arm64, so the Intel half is a cross build. Both halves
       # embed the same generated plist because BARBACK_BUILD is set job-wide.
+      #
+      # --bin barback: the calendar CLI is a separate binary that does not go
+      # into the bundle, so compiling and linking it twice here produces nothing
+      # that ships. It does not save the shared dependency graph, which cargo
+      # builds per package either way.
       - name: Build a universal binary
         run: |
-          cargo build --locked --release --target aarch64-apple-darwin
-          cargo build --locked --release --target x86_64-apple-darwin
+          cargo build --locked --release --bin barback --target aarch64-apple-darwin
+          cargo build --locked --release --bin barback --target x86_64-apple-darwin
           mkdir -p target/universal
           lipo -create -output target/universal/barback \
             target/aarch64-apple-darwin/release/barback \

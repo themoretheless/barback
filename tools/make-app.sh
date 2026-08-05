@@ -42,9 +42,12 @@ BUILD="${BARBACK_BUILD:-$VERSION}"
 if [ -n "${BARBACK_BIN:-}" ]; then
   BIN="$BARBACK_BIN"
 else
+  # --bin barback: the crate also builds a calendar CLI, which has no business
+  # in this bundle. Its dependencies still get compiled, since cargo resolves
+  # those per package, but its own code and link step are skipped.
   case "$PROFILE" in
-    debug)   cargo build --manifest-path "$ROOT/Cargo.toml" ;;
-    release) cargo build --manifest-path "$ROOT/Cargo.toml" --release ;;
+    debug)   cargo build --manifest-path "$ROOT/Cargo.toml" --bin barback ;;
+    release) cargo build --manifest-path "$ROOT/Cargo.toml" --bin barback --release ;;
     *) echo "usage: $0 [debug|release]" >&2; exit 2 ;;
   esac
   BIN="$ROOT/target/$PROFILE/barback"
