@@ -81,7 +81,7 @@ dependencies = [
  "chrono-tz",
  "core-foundation 0.10.1",
  "core-graphics",
- "objc2",
+ "objc2 0.6.4",
  "objc2-app-kit",
  "objc2-event-kit",
  "objc2-foundation",
@@ -114,7 +114,7 @@ version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2c132eebf10f5cad5289222520a4a058514204aed6d791f1cf4fe8088b82d15f"
 dependencies = [
- "objc2",
+ "objc2 0.5.2",
 ]
 
 [[package]]
@@ -916,6 +916,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "objc2"
+version = "0.6.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3a12a8ed07aefc768292f076dc3ac8c48f3781c8f2d5851dd3d98950e8c5a89f"
+dependencies = [
+ "objc2-encode",
+]
+
+[[package]]
 name = "objc2-app-kit"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -924,7 +933,7 @@ dependencies = [
  "bitflags",
  "block2",
  "libc",
- "objc2",
+ "objc2 0.5.2",
  "objc2-core-data",
  "objc2-core-image",
  "objc2-foundation",
@@ -938,7 +947,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a5ff520e9c33812fd374d8deecef01d4a840e7b41862d849513de77e44aa4889"
 dependencies = [
  "block2",
- "objc2",
+ "objc2 0.5.2",
  "objc2-foundation",
 ]
 
@@ -950,7 +959,7 @@ checksum = "617fbf49e071c178c0b24c080767db52958f716d9eabdf0890523aeae54773ef"
 dependencies = [
  "bitflags",
  "block2",
- "objc2",
+ "objc2 0.5.2",
  "objc2-foundation",
 ]
 
@@ -961,7 +970,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "55260963a527c99f1819c4f8e3b47fe04f9650694ef348ffd2227e8196d34c80"
 dependencies = [
  "block2",
- "objc2",
+ "objc2 0.5.2",
  "objc2-foundation",
  "objc2-metal",
 ]
@@ -973,7 +982,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "000cfee34e683244f284252ee206a27953279d370e309649dc3ee317b37e5781"
 dependencies = [
  "block2",
- "objc2",
+ "objc2 0.5.2",
  "objc2-contacts",
  "objc2-foundation",
 ]
@@ -992,7 +1001,7 @@ checksum = "b856880adb20bae9c1de8726b7218503268538775d22462eb839ed8959f05413"
 dependencies = [
  "bitflags",
  "block2",
- "objc2",
+ "objc2 0.5.2",
  "objc2-app-kit",
  "objc2-core-location",
  "objc2-foundation",
@@ -1008,7 +1017,7 @@ dependencies = [
  "bitflags",
  "block2",
  "libc",
- "objc2",
+ "objc2 0.5.2",
 ]
 
 [[package]]
@@ -1019,7 +1028,7 @@ checksum = "ca30f6a66e39947b495622ae162d121c4e727e98c379bbed5c1b255904506368"
 dependencies = [
  "bitflags",
  "block2",
- "objc2",
+ "objc2 0.5.2",
  "objc2-app-kit",
  "objc2-contacts",
  "objc2-core-location",
@@ -1034,7 +1043,7 @@ checksum = "dd0cba1276f6023976a406a14ffa85e1fdd19df6b0f737b063b95f6c8c7aadd6"
 dependencies = [
  "bitflags",
  "block2",
- "objc2",
+ "objc2 0.5.2",
  "objc2-foundation",
 ]
 
@@ -1046,7 +1055,7 @@ checksum = "e42bee7bff906b14b167da2bac5efe6b6a07e6f7c0a21a7308d40c960242dc7a"
 dependencies = [
  "bitflags",
  "block2",
- "objc2",
+ "objc2 0.5.2",
  "objc2-foundation",
  "objc2-metal",
 ]
