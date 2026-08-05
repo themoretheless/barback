@@ -1,5 +1,8 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Template. @VERSION@ and @BUILD@ are substituted by build.rs (for the copy
+     embedded into the Mach-O) and by tools/make-app.sh (for the bundle), both
+     reading the version out of Cargo.toml. Do not hand-edit a generated copy. -->
 <plist version="1.0">
 <dict>
   <key>CFBundleIdentifier</key>
@@ -11,9 +14,12 @@
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>
-  <string>0.1.0</string>
+  <string>@VERSION@</string>
+  <!-- Must never decrease between releases: macOS and every updater treat a
+       smaller value as an older build. CI passes the run number in BARBACK_BUILD;
+       a local build falls back to the marketing version. -->
   <key>CFBundleVersion</key>
-  <string>1</string>
+  <string>@BUILD@</string>
   <!-- Menu bar only: no Dock icon, no main window. -->
   <key>LSUIElement</key>
   <true/>

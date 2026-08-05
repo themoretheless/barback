@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [master]
+    branches: [main]
   pull_request:
 
 jobs:
@@ -30,3 +30,10 @@ jobs:
 
       - name: Run Clippy
         run: cargo clippy --locked --all-targets -- -D warnings
+
+      # Not covered by anything above: make-app.sh produces the artifact users
+      # actually run, and a break in it would otherwise surface only during a
+      # release. Ad-hoc signing needs no secrets, so this stays in the no-secret
+      # workflow.
+      - name: Assemble the app bundle
+        run: tools/make-app.sh release
