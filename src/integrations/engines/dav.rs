@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use quick_xml::Reader;
 use quick_xml::events::Event as XmlEvent;
 
-use crate::calendar::error::{CalendarError, Result};
+use crate::integrations::error::{CalendarError, Result};
 
 /// One property inside a `<prop>` block.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]

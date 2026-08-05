@@ -1,5 +1,5 @@
 //! Protocol implementations. Pick one through
-//! [`ProviderKind`](crate::calendar::providers::ProviderKind) rather than
+//! [`ProviderKind`](crate::integrations::providers::ProviderKind) rather than
 //! constructing them directly.
 
 pub mod caldav;

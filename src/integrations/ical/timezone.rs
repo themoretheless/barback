@@ -146,7 +146,7 @@ fn format_offset(seconds: i32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::calendar::ical::syntax::write;
+    use crate::integrations::ical::syntax::write;
 
     #[test]
     fn berlin_has_two_transitions_per_year() {

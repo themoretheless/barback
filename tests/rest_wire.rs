@@ -4,8 +4,8 @@
 //! but the request shape: query parameters, pagination, and the headers that
 //! decide whether the data is even correct.
 
-use barback::calendar::providers::{ProviderConfig, ProviderKind};
-use barback::calendar::{Auth, CalendarProvider, Event, EventTime, TimeRange};
+use barback::integrations::providers::{ProviderConfig, ProviderKind};
+use barback::integrations::{Auth, CalendarProvider, Event, EventTime, TimeRange};
 use chrono::{TimeZone, Utc};
 use wiremock::matchers::{header, method, path, query_param};
 use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -193,7 +193,7 @@ async fn google_rate_limit_is_typed_not_swallowed() {
         .await
         .expect_err("429 must not look like an empty calendar list");
     match err {
-        barback::calendar::CalendarError::RateLimited { retry_after } => {
+        barback::integrations::CalendarError::RateLimited { retry_after } => {
             assert_eq!(retry_after, Some(std::time::Duration::from_secs(30)));
         }
         other => panic!("expected a rate-limit error, got {other:?}"),
@@ -294,7 +294,7 @@ async fn graph_404_is_reported_as_not_found() {
         .await
         .expect_err("404 must be an error");
     assert!(
-        matches!(err, barback::calendar::CalendarError::NotFound(_)),
+        matches!(err, barback::integrations::CalendarError::NotFound(_)),
         "expected not-found, got {err:?}"
     );
 }

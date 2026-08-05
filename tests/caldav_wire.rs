@@ -4,8 +4,8 @@
 //! body go out, that discovery chains PROPFIND correctly, and that ETags are
 //! carried through a create/update/delete cycle.
 
-use barback::calendar::providers::{ProviderConfig, ProviderKind};
-use barback::calendar::{Auth, CalendarProvider, Event, EventTime, TimeRange};
+use barback::integrations::providers::{ProviderConfig, ProviderKind};
+use barback::integrations::{Auth, CalendarProvider, Event, EventTime, TimeRange};
 use chrono::{TimeZone, Utc};
 use wiremock::matchers::{body_string_contains, header, method, path};
 use wiremock::{Mock, MockServer, Request, ResponseTemplate};
@@ -352,7 +352,7 @@ async fn a_stale_etag_surfaces_as_a_conflict() {
         .await
         .expect_err("a 412 must not look like success");
     assert!(
-        matches!(err, barback::calendar::CalendarError::Conflict(_)),
+        matches!(err, barback::integrations::CalendarError::Conflict(_)),
         "expected a conflict, got {err:?}"
     );
 }
@@ -420,7 +420,7 @@ async fn a_401_is_reported_as_an_auth_error() {
         .await
         .expect_err("401 must not be silently ignored");
     assert!(
-        matches!(err, barback::calendar::CalendarError::Auth(_)),
+        matches!(err, barback::integrations::CalendarError::Auth(_)),
         "expected an auth error, got {err:?}"
     );
 }

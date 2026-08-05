@@ -1,15 +1,19 @@
-//! Calendar integrations.
+//! Remote calendar service integrations.
 //!
 //! Ten providers sit on four engines: the Google Calendar API, Microsoft Graph,
 //! CalDAV, and read-only iCalendar feeds. Pick one with
 //! [`ProviderKind`](providers::ProviderKind), hand it credentials, and work
 //! through the [`CalendarProvider`] trait.
 //!
-//! ```no_run
-//! use barback::calendar::{Auth, CalendarProvider, TimeRange};
-//! use barback::calendar::providers::{ProviderConfig, ProviderKind};
+//! This is distinct from the binary's `calendar` module, which reads the local
+//! macOS calendar store through EventKit. That one asks the system what the
+//! user already has; this one talks to the services over the network.
 //!
-//! # async fn example() -> barback::calendar::Result<()> {
+//! ```no_run
+//! use barback::integrations::{Auth, CalendarProvider, TimeRange};
+//! use barback::integrations::providers::{ProviderConfig, ProviderKind};
+//!
+//! # async fn example() -> barback::integrations::Result<()> {
 //! let calendar = ProviderKind::AppleICloud
 //!     .connect(ProviderConfig::new(Auth::basic("ada@icloud.com", "app-specific-password")))?;
 //!

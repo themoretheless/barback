@@ -17,11 +17,11 @@ use reqwest::header::{CONTENT_TYPE, ETAG, HeaderValue};
 use tokio::sync::RwLock;
 use url::Url;
 
-use crate::calendar::error::{CalendarError, Result};
-use crate::calendar::http::HttpClient;
-use crate::calendar::ical;
-use crate::calendar::model::{Calendar, Capabilities, Event, TimeRange};
-use crate::calendar::provider::CalendarProvider;
+use crate::integrations::error::{CalendarError, Result};
+use crate::integrations::http::HttpClient;
+use crate::integrations::ical;
+use crate::integrations::model::{Calendar, Capabilities, Event, TimeRange};
+use crate::integrations::provider::CalendarProvider;
 
 use super::dav::{DavResponse, parse_multistatus};
 
@@ -309,7 +309,7 @@ impl CalendarProvider for CalDav {
     async fn create_event(&self, calendar_id: &str, event: &Event) -> Result<Event> {
         let collection = self.absolute(calendar_id)?;
         let uid = if event.uid.is_empty() {
-            crate::calendar::model::new_uid()
+            crate::integrations::model::new_uid()
         } else {
             event.uid.clone()
         };
@@ -406,7 +406,7 @@ fn tzid_from_ics(ics: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::calendar::auth::Auth;
+    use crate::integrations::auth::Auth;
     use chrono::TimeZone;
 
     fn engine(base: &str) -> CalDav {

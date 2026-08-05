@@ -10,11 +10,11 @@
 use async_trait::async_trait;
 use url::Url;
 
-use crate::calendar::error::{CalendarError, Result};
-use crate::calendar::http::HttpClient;
-use crate::calendar::ical;
-use crate::calendar::model::{Calendar, Capabilities, Event, TimeRange};
-use crate::calendar::provider::CalendarProvider;
+use crate::integrations::error::{CalendarError, Result};
+use crate::integrations::http::HttpClient;
+use crate::integrations::ical;
+use crate::integrations::model::{Calendar, Capabilities, Event, TimeRange};
+use crate::integrations::provider::CalendarProvider;
 
 pub struct IcsFeed {
     http: HttpClient,
@@ -142,8 +142,8 @@ fn normalize_url(url: &str) -> Result<Url> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::calendar::auth::Auth;
-    use crate::calendar::model::EventTime;
+    use crate::integrations::auth::Auth;
+    use crate::integrations::model::EventTime;
     use chrono::{TimeZone, Utc};
 
     fn feed(url: &str) -> IcsFeed {

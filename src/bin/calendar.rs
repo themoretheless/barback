@@ -14,8 +14,8 @@
 use std::collections::HashMap;
 use std::process::ExitCode;
 
-use barback::calendar::providers::{AuthKind, Engine, ProviderConfig, ProviderKind};
-use barback::calendar::{Auth, Result, TimeRange};
+use barback::integrations::providers::{AuthKind, Engine, ProviderConfig, ProviderKind};
+use barback::integrations::{Auth, Result, TimeRange};
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -117,7 +117,7 @@ fn print_oauth_url(flags: &HashMap<String, String>) -> Result<()> {
     let client_id = required(flags, "client-id")?;
     let redirect_uri = required(flags, "redirect-uri")?;
 
-    let config = barback::calendar::OAuth2Config {
+    let config = barback::integrations::OAuth2Config {
         client_id,
         client_secret: flags.get("client-secret").cloned(),
         auth_url: auth_url.to_string(),
@@ -125,9 +125,9 @@ fn print_oauth_url(flags: &HashMap<String, String>) -> Result<()> {
         scopes: scopes.iter().map(|s| s.to_string()).collect(),
         redirect_uri,
     };
-    let client = barback::calendar::OAuth2::new(
+    let client = barback::integrations::OAuth2::new(
         config,
-        barback::calendar::TokenSet::default(),
+        barback::integrations::TokenSet::default(),
         reqwest::Client::new(),
     );
 
@@ -249,8 +249,8 @@ fn required(flags: &HashMap<String, String>, name: &str) -> Result<String> {
         .ok_or_else(|| config_error(format!("--{name} is required")))
 }
 
-fn config_error(message: impl Into<String>) -> barback::calendar::CalendarError {
-    barback::calendar::CalendarError::Config(message.into())
+fn config_error(message: impl Into<String>) -> barback::integrations::CalendarError {
+    barback::integrations::CalendarError::Config(message.into())
 }
 
 /// Parses `--key value` and `--flag` pairs. Bare flags map to an empty string.

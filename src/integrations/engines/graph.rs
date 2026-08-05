@@ -17,13 +17,13 @@ use reqwest::Method;
 use reqwest::header::IF_MATCH;
 use serde::{Deserialize, Serialize};
 
-use crate::calendar::error::{CalendarError, Result};
-use crate::calendar::http::HttpClient;
-use crate::calendar::model::{
+use crate::integrations::error::{CalendarError, Result};
+use crate::integrations::http::HttpClient;
+use crate::integrations::model::{
     Attendee, Calendar, Capabilities, Event, EventStatus, EventTime, ParticipationStatus, Person,
     Reminder, ReminderMethod, TimeRange, Transparency,
 };
-use crate::calendar::provider::CalendarProvider;
+use crate::integrations::provider::CalendarProvider;
 
 pub const DEFAULT_BASE: &str = "https://graph.microsoft.com/v1.0/me";
 const PAGE_SIZE: &str = "250";
@@ -651,7 +651,7 @@ mod tests {
     async fn recurring_writes_are_refused_rather_than_flattened() {
         let engine = MicrosoftGraph::new(HttpClient::new(
             reqwest::Client::new(),
-            crate::calendar::auth::Auth::None,
+            crate::integrations::auth::Auth::None,
             "microsoft-graph",
         ));
         let mut event = Event::new(

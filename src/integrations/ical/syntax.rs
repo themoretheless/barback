@@ -1,7 +1,7 @@
 //! The RFC 5545 content-line layer: folding, parameters, and the component
 //! tree. Nothing here knows what a VEVENT means.
 
-use crate::calendar::error::{CalendarError, Result};
+use crate::integrations::error::{CalendarError, Result};
 
 /// Maximum octets per line before folding, per RFC 5545 section 3.1.
 const FOLD_LIMIT: usize = 75;
