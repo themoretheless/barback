@@ -4,8 +4,10 @@
 //! `EKEvent` escapes it: everything crosses into [`crate::meeting`] as plain
 //! Rust, which is what keeps the overlap rules testable without a Mac.
 
-use block2::{Block, RcBlock};
-use objc2::msg_send_id;
+// DynBlock rather than Block: it is the name the generated binding uses, and
+// block2 added it precisely so this spelling survives the next major bump.
+use block2::{DynBlock, RcBlock};
+use objc2::msg_send;
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, Bool, NSObject, Sel};
 use objc2_event_kit::{
@@ -61,8 +63,8 @@ pub fn request_access(store: &EKEventStore, target: *const NSObject, granted: Se
         }
     });
 
-    let raw: *mut Block<dyn Fn(Bool, *mut NSError)> =
-        &*handler as *const Block<dyn Fn(Bool, *mut NSError)> as *mut _;
+    let raw: *mut DynBlock<dyn Fn(Bool, *mut NSError)> =
+        &*handler as *const DynBlock<dyn Fn(Bool, *mut NSError)> as *mut _;
     unsafe { store.requestFullAccessToEventsWithCompletion(raw) };
 
     // EventKit is expected to copy the block, but the binding takes a bare
@@ -74,35 +76,33 @@ pub fn request_access(store: &EKEventStore, target: *const NSObject, granted: Se
 }
 
 fn instant_of(date: &NSDate) -> Instant {
-    let secs = unsafe { date.timeIntervalSince1970() };
+    let secs = date.timeIntervalSince1970();
     if secs.is_finite() { secs as Instant } else { 0 }
 }
 
 fn date_at(instant: Instant) -> Retained<NSDate> {
-    unsafe { NSDate::dateWithTimeIntervalSince1970(instant as f64) }
+    NSDate::dateWithTimeIntervalSince1970(instant as f64)
 }
 
 fn start_of_day(cal: &NSCalendar, date: &NSDate) -> Retained<NSDate> {
-    unsafe { cal.startOfDayForDate(date) }
+    cal.startOfDayForDate(date)
 }
 
 fn add_days(cal: &NSCalendar, date: &NSDate, days: isize) -> Option<Retained<NSDate>> {
-    unsafe {
-        cal.dateByAddingUnit_value_toDate_options(
-            NSCalendarUnit::Day,
-            days,
-            date,
-            NSCalendarOptions::empty(),
-        )
-    }
+    cal.dateByAddingUnit_value_toDate_options(
+        NSCalendarUnit::Day,
+        days,
+        date,
+        NSCalendarOptions::empty(),
+    )
 }
 
 /// "Now" plus the local day boundaries, derived from `NSCalendar` so that the
 /// 23 and 25 hour days land in the right place.
 pub fn now_snapshot() -> Now {
-    let now_date = unsafe { NSDate::now() };
+    let now_date = NSDate::now();
     let instant = instant_of(&now_date);
-    let cal = unsafe { NSCalendar::currentCalendar() };
+    let cal = NSCalendar::currentCalendar();
 
     let today = start_of_day(&cal, &now_date);
     let today_start = instant_of(&today);
@@ -122,22 +122,21 @@ pub fn now_snapshot() -> Now {
 }
 
 fn local_hm(cal: &NSCalendar, date: &NSDate) -> Hm {
-    let comps =
-        unsafe { cal.components_fromDate(NSCalendarUnit::Hour | NSCalendarUnit::Minute, date) };
-    let h = unsafe { comps.hour() };
-    let m = unsafe { comps.minute() };
+    let comps = cal.components_fromDate(NSCalendarUnit::Hour | NSCalendarUnit::Minute, date);
+    let h = comps.hour();
+    let m = comps.minute();
     (h.clamp(0, 23) as u8, m.clamp(0, 59) as u8)
 }
 
 /// `EKEvent::startDate` and friends are typed non-optional by the bindings even
-/// though Objective-C can hand back nil, and a non-optional `msg_send_id!` would
+/// though Objective-C can hand back nil, and a non-optional `msg_send!` would
 /// abort on that. Ask for an `Option` instead.
 fn opt_date(event: &EKEvent, sel_start: bool) -> Option<Retained<NSDate>> {
     unsafe {
         if sel_start {
-            msg_send_id![event, startDate]
+            msg_send![event, startDate]
         } else {
-            msg_send_id![event, endDate]
+            msg_send![event, endDate]
         }
     }
 }
@@ -145,11 +144,11 @@ fn opt_date(event: &EKEvent, sel_start: bool) -> Option<Retained<NSDate>> {
 fn opt_string(object: &AnyObject, selector: &str) -> Option<String> {
     let value: Option<Retained<NSString>> = unsafe {
         match selector {
-            "title" => msg_send_id![object, title],
-            "eventIdentifier" => msg_send_id![object, eventIdentifier],
-            "calendarItemIdentifier" => msg_send_id![object, calendarItemIdentifier],
+            "title" => msg_send![object, title],
+            "eventIdentifier" => msg_send![object, eventIdentifier],
+            "calendarItemIdentifier" => msg_send![object, calendarItemIdentifier],
             "calendarItemExternalIdentifier" => {
-                msg_send_id![object, calendarItemExternalIdentifier]
+                msg_send![object, calendarItemExternalIdentifier]
             }
             _ => None,
         }
@@ -213,7 +212,7 @@ fn attendee_summary(event: &EKEvent) -> (Option<SelfStatus>, usize) {
     let mut others = 0usize;
     for participant in attendees.iter() {
         if unsafe { participant.isCurrentUser() } {
-            mine = Some(self_status_of(participant));
+            mine = Some(self_status_of(&participant));
             continue;
         }
         // Rooms and projectors must not make a solo block look like a meeting.
@@ -259,7 +258,7 @@ fn convert(event: &EKEvent, cal: &NSCalendar) -> Option<RawEvent> {
             .and_then(|c| {
                 // Typed non-optional by the bindings, nil in practice for a
                 // calendar that is being deleted mid-sync.
-                let title: Option<Retained<NSString>> = unsafe { msg_send_id![c, title] };
+                let title: Option<Retained<NSString>> = unsafe { msg_send![c, title] };
                 title.map(|t| t.to_string())
             })
             .unwrap_or_default(),
@@ -292,10 +291,10 @@ pub fn fetch(store: &EKEventStore, now: Now) -> Vec<RawEvent> {
         unsafe { store.predicateForEventsWithStartDate_endDate_calendars(&from, &to, None) };
     let events = unsafe { store.eventsMatchingPredicate(&predicate) };
 
-    let cal = unsafe { NSCalendar::currentCalendar() };
+    let cal = NSCalendar::currentCalendar();
     events
         .iter()
-        .filter_map(|event| convert(event, &cal))
+        .filter_map(|event| convert(&event, &cal))
         .collect()
 }
 

@@ -22,11 +22,11 @@ wiremock = "0.6.5"
 [target.'cfg(target_os = "macos")'.dependencies]
 core-foundation = "0.10"
 core-graphics = "0.25"
-objc2 = "0.5"
+objc2 = "0.6"
 # NSPredicate, NSURL and NSTimeZone also arrive transitively through
 # objc2-event-kit, but they are listed here so a future dependency change cannot
 # silently break the build.
-objc2-foundation = { version = "0.2", features = [
+objc2-foundation = { version = "0.3", features = [
     "NSString",
     "NSGeometry",
     "NSObjCRuntime",
@@ -45,7 +45,7 @@ objc2-foundation = { version = "0.2", features = [
     "NSURL",
     "NSTimeZone",
 ] }
-objc2-app-kit = { version = "0.2", features = [
+objc2-app-kit = { version = "0.3", features = [
     "NSApplication",
     "NSStatusBar",
     "NSStatusItem",
@@ -60,5 +60,5 @@ objc2-app-kit = { version = "0.2", features = [
     "NSView",
     "NSWorkspace",
 ] }
-objc2-event-kit = { version = "0.2", features = ["EKEventStore", "EKEvent", "EKCalendar", "EKCalendarItem", "EKParticipant", "EKObject", "EKTypes", "block2"] }
-block2 = "0.5"
+objc2-event-kit = { version = "0.3", features = ["EKEventStore", "EKEvent", "EKCalendar", "EKCalendarItem", "EKParticipant", "EKObject", "EKTypes", "block2"] }
+block2 = "0.6"

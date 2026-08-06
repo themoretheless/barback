@@ -5,7 +5,7 @@ use std::cell::{Cell, RefCell};
 
 use objc2::rc::Retained;
 use objc2::runtime::{AnyObject, NSObject, ProtocolObject};
-use objc2::{ClassType, DeclaredClass, declare_class, msg_send_id, mutability, sel};
+use objc2::{DefinedClass, MainThreadOnly, define_class, msg_send, sel};
 use objc2_app_kit::{
     NSApplication, NSApplicationActivationPolicy, NSMenu, NSMenuDelegate, NSMenuItem, NSStatusBar,
     NSStatusItem, NSVariableStatusItemLength, NSWorkspace,
@@ -46,32 +46,32 @@ struct ControllerIvars {
     tick: RefCell<Option<Retained<NSTimer>>>,
 }
 
-declare_class!(
+define_class!(
+    // SAFETY:
+    // - NSObject has no subclassing requirements.
+    // - Controller does not implement Drop.
+    #[unsafe(super = NSObject)]
+    // Everything here reaches into AppKit, and the ivars are Cell and RefCell,
+    // which are not Sync. The one place that legitimately runs off the main
+    // thread is the pair of notification selectors below, and they only hop.
+    #[thread_kind = MainThreadOnly]
+    #[name = "BarbackController"]
+    #[ivars = ControllerIvars]
     struct Controller;
-
-    unsafe impl ClassType for Controller {
-        type Super = NSObject;
-        type Mutability = mutability::MainThreadOnly;
-        const NAME: &'static str = "BarbackController";
-    }
-
-    impl DeclaredClass for Controller {
-        type Ivars = ControllerIvars;
-    }
 
     unsafe impl NSObjectProtocol for Controller {}
 
     unsafe impl NSMenuDelegate for Controller {
         // AppKit's "populate yourself now" hook. It runs before the menu is laid
         // out, so titles set here are measured correctly.
-        #[method(menuNeedsUpdate:)]
+        #[unsafe(method(menuNeedsUpdate:))]
         fn menu_needs_update(&self, _menu: &NSMenu) {
             self.refresh(false);
         }
     }
 
-    unsafe impl Controller {
-        #[method(toggleHidden:)]
+    impl Controller {
+        #[unsafe(method(toggleHidden:))]
         fn toggle_hidden(&self, _sender: Option<&AnyObject>) {
             let now_hidden = !self.ivars().hidden.get();
             self.ivars().hidden.set(now_hidden);
@@ -80,12 +80,12 @@ declare_class!(
             // TODO: synthesize the command-drag via CGEvent to actually move items.
         }
 
-        #[method(dumpItems:)]
+        #[unsafe(method(dumpItems:))]
         fn dump_items_action(&self, _sender: Option<&AnyObject>) {
             self.dump_items();
         }
 
-        #[method(toggleMenuBarLabel:)]
+        #[unsafe(method(toggleMenuBarLabel:))]
         fn toggle_menu_bar_label(&self, _sender: Option<&AnyObject>) {
             let show = !self.ivars().show_label.get();
             self.ivars().show_label.set(show);
@@ -93,7 +93,7 @@ declare_class!(
             self.refresh(false);
         }
 
-        #[method(requestCalendarAccess:)]
+        #[unsafe(method(requestCalendarAccess:))]
         fn request_calendar_access(&self, _sender: Option<&AnyObject>) {
             self.ivars().loading.set(true);
             let target: *const NSObject = &**self;
@@ -105,25 +105,25 @@ declare_class!(
             );
         }
 
-        #[method(calendarAccessGranted)]
+        #[unsafe(method(calendarAccessGranted))]
         fn calendar_access_granted(&self) {
             self.ivars().loading.set(false);
             self.ivars().access.set(calendar::access());
             self.refresh(true);
         }
 
-        #[method(calendarAccessDenied)]
+        #[unsafe(method(calendarAccessDenied))]
         fn calendar_access_denied(&self) {
             self.ivars().loading.set(false);
             self.ivars().access.set(calendar::access());
             self.refresh(false);
         }
 
-        #[method(openPrivacySettings:)]
+        #[unsafe(method(openPrivacySettings:))]
         fn open_privacy_settings(&self, _sender: Option<&AnyObject>) {
             let text = NSString::from_str(PRIVACY_SETTINGS_URL);
-            if let Some(url) = unsafe { NSURL::URLWithString(&text) } {
-                unsafe { NSWorkspace::sharedWorkspace().openURL(&url) };
+            if let Some(url) = NSURL::URLWithString(&text) {
+                NSWorkspace::sharedWorkspace().openURL(&url);
             }
         }
 
@@ -132,18 +132,18 @@ declare_class!(
         // selectors must therefore touch no ivar and no AppKit: all they may do
         // is hop to the main thread, where the ivars are not shared and the
         // MainThreadMarker is honest.
-        #[method(calendarsChanged:)]
+        #[unsafe(method(calendarsChanged:))]
         fn calendars_changed(&self, _note: Option<&AnyObject>) {
             self.hop_to_main(sel!(calendarsChangedOnMain));
         }
 
-        #[method(environmentChanged:)]
+        #[unsafe(method(environmentChanged:))]
         fn environment_changed(&self, _note: Option<&AnyObject>) {
             self.hop_to_main(sel!(environmentChangedOnMain));
         }
 
         // EventKit hands out snapshots, so a change means refetch, not reread.
-        #[method(calendarsChangedOnMain)]
+        #[unsafe(method(calendarsChangedOnMain))]
         fn calendars_changed_on_main(&self) {
             calendar::reset(&self.ivars().store);
             self.refresh(true);
@@ -151,31 +151,31 @@ declare_class!(
 
         // The machine may have been asleep for days, and a timezone or day change
         // moves the boundaries every label is measured against.
-        #[method(environmentChangedOnMain)]
+        #[unsafe(method(environmentChangedOnMain))]
         fn environment_changed_on_main(&self) {
             self.refresh(true);
         }
 
-        #[method(tick:)]
+        #[unsafe(method(tick:))]
         fn tick(&self, _timer: Option<&AnyObject>) {
             self.refresh(false);
         }
 
-        #[method(quit:)]
+        #[unsafe(method(quit:))]
         fn quit(&self, _sender: Option<&AnyObject>) {
             let mtm = self.mtm();
             let app = NSApplication::sharedApplication(mtm);
-            unsafe { app.terminate(None) };
+            app.terminate(None);
         }
     }
 );
 
 impl Controller {
     fn new(mtm: MainThreadMarker) -> Retained<Self> {
-        let status_bar = unsafe { NSStatusBar::systemStatusBar() };
-        let status_item = unsafe { status_bar.statusItemWithLength(NSVariableStatusItemLength) };
+        let status_bar = NSStatusBar::systemStatusBar();
+        let status_item = status_bar.statusItemWithLength(NSVariableStatusItemLength);
 
-        let this = mtm.alloc::<Self>().set_ivars(ControllerIvars {
+        let this = Self::alloc(mtm).set_ivars(ControllerIvars {
             status_item,
             menu: NSMenu::new(mtm),
             hidden: Cell::new(false),
@@ -192,7 +192,7 @@ impl Controller {
             show_label: Cell::new(false),
             tick: RefCell::new(None),
         });
-        let this: Retained<Self> = unsafe { msg_send_id![super(this), init] };
+        let this: Retained<Self> = unsafe { msg_send![super(this), init] };
 
         this.install_menus();
         this.refresh_arrow();
@@ -201,9 +201,12 @@ impl Controller {
         this
     }
 
-    /// `MainThreadMarker::from(self)` is a type-system-only construct: it calls
-    /// `new_unchecked` and inserts no runtime check, so getting it wrong is
-    /// silent undefined behaviour rather than a crash. Assert instead.
+    /// Deliberately shadows [`MainThreadOnly::mtm`], which is a type-system-only
+    /// construct: it hands out the marker on the strength of the class being
+    /// main thread only, with no runtime check. That guarantee is exactly what
+    /// the notification selectors below can violate, since the poster picks the
+    /// thread, so getting it wrong there would be silent undefined behaviour
+    /// rather than a crash. This one asserts.
     fn mtm(&self) -> MainThreadMarker {
         MainThreadMarker::new().expect("AppKit touched off the main thread")
     }
@@ -226,16 +229,16 @@ impl Controller {
             // Without this AppKit recomputes every item's enabled state from its
             // target and action each time the menu is shown, which would undo
             // setEnabled(false) on the informational rows.
-            unsafe { menu.setAutoenablesItems(false) };
-            unsafe { menu.setDelegate(Some(delegate)) };
+            menu.setAutoenablesItems(false);
+            menu.setDelegate(Some(delegate));
         }
-        unsafe { ivars.status_item.setMenu(Some(&ivars.menu)) };
+        ivars.status_item.setMenu(Some(&ivars.menu));
     }
 
     fn observe_notifications(&self) {
         let observer: &AnyObject = self.as_ref();
 
-        let center = unsafe { NSNotificationCenter::defaultCenter() };
+        let center = NSNotificationCenter::defaultCenter();
         unsafe {
             center.addObserver_selector_name_object(
                 observer,
@@ -259,7 +262,7 @@ impl Controller {
 
         // Sleep and wake are posted on the workspace's own center, not the
         // default one.
-        let workspace_center = unsafe { NSWorkspace::sharedWorkspace().notificationCenter() };
+        let workspace_center = NSWorkspace::sharedWorkspace().notificationCenter();
         unsafe {
             workspace_center.addObserver_selector_name_object(
                 observer,
@@ -323,15 +326,15 @@ impl Controller {
     fn info_item(&self, mtm: MainThreadMarker, text: &str, indent: isize) -> Retained<NSMenuItem> {
         let item = unsafe {
             NSMenuItem::initWithTitle_action_keyEquivalent(
-                mtm.alloc::<NSMenuItem>(),
+                NSMenuItem::alloc(mtm),
                 &NSString::from_str(text),
                 None,
                 ns_string!(""),
             )
         };
-        unsafe { item.setEnabled(false) };
+        item.setEnabled(false);
         if indent > 0 {
-            unsafe { item.setIndentationLevel(indent) };
+            item.setIndentationLevel(indent);
         }
         item
     }
@@ -346,7 +349,7 @@ impl Controller {
     ) -> Retained<NSMenuItem> {
         let item = unsafe {
             NSMenuItem::initWithTitle_action_keyEquivalent(
-                mtm.alloc::<NSMenuItem>(),
+                NSMenuItem::alloc(mtm),
                 &NSString::from_str(text),
                 Some(selector),
                 key,
@@ -354,18 +357,18 @@ impl Controller {
         };
         unsafe { item.setTarget(Some(self)) };
         if indent > 0 {
-            unsafe { item.setIndentationLevel(indent) };
+            item.setIndentationLevel(indent);
         }
         item
     }
 
     fn populate(&self, menu: &NSMenu, model: &MenuModel, mtm: MainThreadMarker) {
-        unsafe { menu.removeAllItems() };
+        menu.removeAllItems();
 
         let header = &model.header;
         let title_item = self.info_item(mtm, &header.primary, 0);
         if let Some(tip) = &header.tooltip {
-            unsafe { title_item.setToolTip(Some(&NSString::from_str(tip))) };
+            title_item.setToolTip(Some(&NSString::from_str(tip)));
         }
         menu.addItem(&title_item);
 
@@ -423,7 +426,7 @@ impl Controller {
                 let marker = if row.is_selected { "\u{25b8} " } else { "" };
                 let dimmed = if row.dimmed { " (not accepted)" } else { "" };
                 let item = self.info_item(mtm, &format!("{marker}{}{dimmed}", row.title), 1);
-                unsafe { item.setToolTip(Some(&NSString::from_str(&row.tooltip))) };
+                item.setToolTip(Some(&NSString::from_str(&row.tooltip)));
                 menu.addItem(&item);
                 menu.addItem(&self.info_item(mtm, &row.detail, 2));
             }
@@ -473,8 +476,8 @@ impl Controller {
             ns_string!("\u{25c0}")
         };
         let mtm = self.mtm();
-        if let Some(button) = unsafe { self.ivars().status_item.button(mtm) } {
-            unsafe { button.setTitle(title) };
+        if let Some(button) = self.ivars().status_item.button(mtm) {
+            button.setTitle(title);
         }
     }
 
@@ -483,17 +486,17 @@ impl Controller {
         if ivars.show_label.get() {
             let mut slot = ivars.label_item.borrow_mut();
             if slot.is_none() {
-                let bar = unsafe { NSStatusBar::systemStatusBar() };
-                let item = unsafe { bar.statusItemWithLength(NSVariableStatusItemLength) };
-                unsafe { item.setMenu(Some(&ivars.label_menu)) };
+                let bar = NSStatusBar::systemStatusBar();
+                let item = bar.statusItemWithLength(NSVariableStatusItemLength);
+                item.setMenu(Some(&ivars.label_menu));
                 *slot = Some(item);
             }
         } else {
             // Drop the item so the slot is returned to the menu bar. This app
             // exists to reclaim menu bar space, so it must not squat in it.
             if let Some(item) = ivars.label_item.borrow_mut().take() {
-                unsafe { item.setVisible(false) };
-                unsafe { NSStatusBar::systemStatusBar().removeStatusItem(&item) };
+                item.setVisible(false);
+                NSStatusBar::systemStatusBar().removeStatusItem(&item);
             }
         }
     }
@@ -504,8 +507,8 @@ impl Controller {
         let Some(item) = slot.as_ref() else {
             return;
         };
-        if let Some(button) = unsafe { item.button(mtm) } {
-            unsafe { button.setTitle(&NSString::from_str(text)) };
+        if let Some(button) = item.button(mtm) {
+            button.setTitle(&NSString::from_str(text));
         }
     }
 
@@ -515,7 +518,7 @@ impl Controller {
     fn reschedule_tick(&self, seconds: Option<i64>) {
         let ivars = self.ivars();
         if let Some(old) = ivars.tick.borrow_mut().take() {
-            unsafe { old.invalidate() };
+            old.invalidate();
         }
         // Nothing to tick unless the label is on screen.
         if !ivars.show_label.get() {
@@ -536,7 +539,7 @@ impl Controller {
             )
         };
         // Let the kernel coalesce this with other wakeups.
-        unsafe { timer.setTolerance((interval * 0.1).min(15.0)) };
+        timer.setTolerance((interval * 0.1).min(15.0));
         unsafe { NSRunLoop::mainRunLoop().addTimer_forMode(&timer, NSRunLoopCommonModes) };
         *ivars.tick.borrow_mut() = Some(timer);
     }
@@ -575,5 +578,5 @@ pub fn run() {
     let controller = Controller::new(mtm);
     std::mem::forget(controller);
 
-    unsafe { app.run() };
+    app.run();
 }
